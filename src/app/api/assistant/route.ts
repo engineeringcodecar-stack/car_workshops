@@ -15,8 +15,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-   const MODEL = "gemini-flash-latest";
-// نفس وثيقة السكيما الأصلية — بلا تغيير.
+const MODEL = "gemini-flash-lite-latest";// نفس وثيقة السكيما الأصلية — بلا تغيير.
 const SCHEMA_DOC = `قاعدة البيانات (PostgreSQL) لورشة سيارات. الجداول والأعمدة المهمة:
 
 branches(id uuid, name text)  -- الفروع
