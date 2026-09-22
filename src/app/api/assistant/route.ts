@@ -16,6 +16,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const MODEL = "gemini-2.0-flash";
+
 // نفس وثيقة السكيما الأصلية — بلا تغيير.
 const SCHEMA_DOC = `قاعدة البيانات (PostgreSQL) لورشة سيارات. الجداول والأعمدة المهمة:
 
@@ -118,7 +119,7 @@ export async function POST(request: Request) {
     }
 
     const supabaseAdmin = guard.supabaseAdmin;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
     const reqBody: any = {
         systemInstruction: { parts: [{ text: SYSTEM }] },
@@ -132,7 +133,7 @@ export async function POST(request: Request) {
             loops++;
             const r = await fetch(url, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
                 body: JSON.stringify(reqBody),
             });
 
