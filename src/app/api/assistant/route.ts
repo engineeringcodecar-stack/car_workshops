@@ -36,6 +36,7 @@ used_parts(id uuid, report_id uuid, inventory_id uuid, quantity int, unit_price 
 pos_sales(id bigint, total_amount numeric, payment_method text, items jsonb, created_at timestamptz)
 
 ملاحظات بالغة الأهمية:
+- تنبيه مهم: في جدول vehicles اسم موديل/نوع السيارة مخزون في عمود make (مثل: النترا، سورنتو، توسان، اكسنت، دراجة)، أما عمود model فيحوي سنة الصنع أو يكون فارغاً. لتحليل «أكثر الموديلات دخولاً» أو نوع السيارة جمّع دائماً حسب make وليس model.
 - اسم الفني ليس عموداً. يُخزَّن نصاً في selected_services->0->>'technicianName'. واسم المشرف في selected_services->0->>'shiftSupervisor'.
 - لو عمل سيارةً واحدةً أكثر من فني، يُكتب الاسم مدموجاً بفواصل مثل +، -، /، و، ، . عند تحليل الفنيين فرداً فرداً استخدم regexp_split_to_table على هذه الفواصل وحذف الفراغات.
 - عدد الخدمات على كرت الصيانة ≈ عدد عناصر selected_services->0->'services' التي قيمتها status='يحتاج تغيير'، زائد عناصر مصفوفتي customServices و freeServices.
