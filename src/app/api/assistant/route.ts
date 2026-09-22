@@ -15,8 +15,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MODEL = "gemini-2.0-flash";
-
+   const MODEL = "gemini-flash-latest";
 // نفس وثيقة السكيما الأصلية — بلا تغيير.
 const SCHEMA_DOC = `قاعدة البيانات (PostgreSQL) لورشة سيارات. الجداول والأعمدة المهمة:
 
