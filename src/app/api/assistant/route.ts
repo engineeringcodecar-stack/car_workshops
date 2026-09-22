@@ -1,14 +1,23 @@
-import Anthropic from "@anthropic-ai/sdk";
+// src/app/api/assistant/route.ts
+// نسخة معدّلة: المساعد يشتغل على Google Gemini (الطبقة المجانية) بدل Anthropic.
+// ⚠️ تبديل مزوّد الذكاء فقط — ما يمسّ أي شي ثاني بالنظام.
+// نفس عقد الواجهة تماماً: يستقبل { messages:[{role,content}] } ويرجّع { reply }.
+// فصفحة /assistant ما تحتاج أي تعديل.
+//
+// المطلوب لتشغيله:
+//   1) متغير بيئة GEMINI_API_KEY (مفتاح مجاني من aistudio.google.com — بلا كارت)
+//   2) دالة assistant_query موجودة بالقاعدة (نفس المايگريشن الحالي — قراءة فقط)
+
 import { requireAdmin } from "@/lib/supabase-server";
 
-// Node runtime (needs the service-role Supabase client + the Anthropic SDK), never cached.
+// Node runtime (needs the service-role Supabase client), never cached.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MODEL = "claude-sonnet-4-6";
+const MODEL = "gemini-2.5-flash";
 
-// Schema + quirks the model must know to write correct PostgreSQL. Kept concise.
+// نفس وثيقة السكيما الأصلية — بلا تغيير.
 const SCHEMA_DOC = `قاعدة البيانات (PostgreSQL) لورشة سيارات. الجداول والأعمدة المهمة:
 
 branches(id uuid, name text)  -- الفروع
@@ -37,7 +46,7 @@ pos_sales(id bigint, total_amount numeric, payment_method text, items jsonb, cre
 - العميل مرتبط بالكرت عبر vehicles.client_id (انضمّ inspection_reports.vehicle_id = vehicles.id ثم vehicles.client_id = clients.id). المبيعات بلا مركبة فاسم عميلها داخل selected_services.
 - استخدم دائماً صيغة PostgreSQL ومعاملات JSON (->, ->>). أضف LIMIT مناسباً. النتائج محدودة بـ 1000 صف.`;
 
-const SYSTEM = `أنت مساعد ذكي لإدارة ورشة سيارات، تخدم المالك والمدير. تجاوب بالعربية بإيجاز ووضوح.
+const SYSTEM = `أنت مساعد ذكي لإدارة ورشة سيارات، تخدم المالك والمدير. تجاوب بالعربية (اللهجة العراقية) بإيجاز ووضوح.
 لديك أداة query_database لتنفيذ استعلامات قراءة فقط (SELECT) على قاعدة البيانات الحقيقية.
 القواعد:
 - لا تخمّن الأرقام أبداً. استعلم من قاعدة البيانات أولاً ثم أجب من النتائج الفعلية.
@@ -49,18 +58,23 @@ const SYSTEM = `أنت مساعد ذكي لإدارة ورشة سيارات، ت
 
 ${SCHEMA_DOC}`;
 
-const TOOLS: Anthropic.Tool[] = [
+// تعريف الأداة بصيغة Gemini function-calling.
+const TOOLS = [
     {
-        name: "query_database",
-        description:
-            "Run ONE read-only PostgreSQL SELECT/WITH query against the workshop database and return the rows as JSON. Use it to answer any question about the data. No INSERT/UPDATE/DELETE/DDL. Always include a sensible LIMIT; results are capped at 1000 rows.",
-        input_schema: {
-            type: "object",
-            properties: {
-                sql: { type: "string", description: "A single read-only PostgreSQL SELECT/WITH statement." },
+        functionDeclarations: [
+            {
+                name: "query_database",
+                description:
+                    "نفّذ استعلام PostgreSQL واحد للقراءة فقط (SELECT/WITH) على قاعدة الورشة وأرجِع الصفوف. ممنوع INSERT/UPDATE/DELETE/DDL. ضع LIMIT مناسباً؛ النتائج محدودة بـ1000 صف.",
+                parameters: {
+                    type: "object",
+                    properties: {
+                        sql: { type: "string", description: "جملة SELECT/WITH واحدة للقراءة فقط." },
+                    },
+                    required: ["sql"],
+                },
             },
-            required: ["sql"],
-        },
+        ],
     },
 ];
 
@@ -70,10 +84,10 @@ export async function POST(request: Request) {
         return Response.json({ error: guard.error || "غير مصرح." }, { status: 403 });
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
         return Response.json(
-            { error: "المساعد غير مُفعّل بعد: لم يتم ضبط مفتاح ANTHROPIC_API_KEY في إعدادات المشروع." },
+            { error: "المساعد غير مُفعّل بعد: لم يتم ضبط مفتاح GEMINI_API_KEY في إعدادات المشروع." },
             { status: 503 }
         );
     }
@@ -90,77 +104,91 @@ export async function POST(request: Request) {
         return Response.json({ error: "messages[] مطلوبة." }, { status: 400 });
     }
 
-    // Only carry forward simple user/assistant text turns from the client.
-    const messages: Anthropic.MessageParam[] = incoming
+    // نحمل فقط أدوار المستخدم/المساعد النصية، ونحوّلها لصيغة Gemini (assistant -> model).
+    const contents = incoming
         .filter((m): m is { role: "user" | "assistant"; content: string } =>
             !!m && typeof m === "object" &&
             ((m as any).role === "user" || (m as any).role === "assistant") &&
             typeof (m as any).content === "string" && (m as any).content.trim() !== ""
         )
         .slice(-20)
-        .map((m) => ({ role: m.role, content: m.content }));
+        .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] as any[] }));
 
-    if (messages.length === 0 || messages[messages.length - 1].role !== "user") {
+    if (contents.length === 0 || contents[contents.length - 1].role !== "user") {
         return Response.json({ error: "آخر رسالة يجب أن تكون من المستخدم." }, { status: 400 });
     }
 
-    const client = new Anthropic({ apiKey });
     const supabaseAdmin = guard.supabaseAdmin;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    const reqBody: any = {
+        systemInstruction: { parts: [{ text: SYSTEM }] },
+        tools: TOOLS,
+        contents,
+    };
 
     try {
-        let response = await client.messages.create({
-            model: MODEL,
-            max_tokens: 4096,
-            system: SYSTEM,
-            tools: TOOLS,
-            messages,
-        });
-
         let loops = 0;
-        const executed: { sql: string }[] = [];
-        while (response.stop_reason === "tool_use" && loops < 8) {
+        while (loops < 8) {
             loops++;
-            const toolResults: Anthropic.ToolResultBlockParam[] = [];
-            for (const block of response.content) {
-                if (block.type === "tool_use" && block.name === "query_database") {
-                    const sql = String((block.input as { sql?: string })?.sql ?? "");
-                    executed.push({ sql });
-                    const { data, error } = await (supabaseAdmin as any).rpc("assistant_query", { query_text: sql });
-                    let content: string;
-                    let isError = false;
-                    if (error) {
-                        content = `ERROR: ${error.message}`;
-                        isError = true;
-                    } else {
-                        content = JSON.stringify(data ?? []).slice(0, 60000);
-                    }
-                    toolResults.push({ type: "tool_result", tool_use_id: block.id, content, is_error: isError });
-                }
-            }
-            messages.push({ role: "assistant", content: response.content as unknown as Anthropic.ContentBlockParam[] });
-            messages.push({ role: "user", content: toolResults });
-            response = await client.messages.create({
-                model: MODEL,
-                max_tokens: 4096,
-                system: SYSTEM,
-                tools: TOOLS,
-                messages,
+            const r = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(reqBody),
             });
+
+            if (!r.ok) {
+                const t = await r.text();
+                console.error("gemini error:", r.status, t.slice(0, 400));
+                return Response.json(
+                    { error: "تعذّر الاتصال بالمساعد. (" + r.status + ")" },
+                    { status: r.status === 401 || r.status === 403 ? 502 : 500 }
+                );
+            }
+
+            const data = await r.json();
+            const parts: any[] = data?.candidates?.[0]?.content?.parts || [];
+            const calls = parts.filter((p) => p.functionCall);
+
+            if (calls.length > 0) {
+                // نضيف دور النموذج (الذي طلب الأداة) ثم نرجّع نتائج الاستعلام.
+                reqBody.contents.push({ role: "model", parts });
+                const responseParts: any[] = [];
+                for (const p of calls) {
+                    if (p.functionCall?.name === "query_database") {
+                        const sql = String(p.functionCall?.args?.sql ?? "");
+                        const { data: rows, error } = await (supabaseAdmin as any).rpc("assistant_query", {
+                            query_text: sql,
+                        });
+                        responseParts.push({
+                            functionResponse: {
+                                name: "query_database",
+                                response: error
+                                    ? { error: error.message }
+                                    : { result: JSON.stringify(rows ?? []).slice(0, 60000) },
+                            },
+                        });
+                    }
+                }
+                reqBody.contents.push({ role: "user", parts: responseParts });
+                continue;
+            }
+
+            const reply = parts
+                .filter((p) => typeof p.text === "string")
+                .map((p) => p.text)
+                .join("\n")
+                .trim();
+
+            return Response.json({ reply: reply || "لم أتمكن من إيجاد إجابة." });
         }
 
-        const reply = response.content
-            .filter((b): b is Anthropic.TextBlock => b.type === "text")
-            .map((b) => b.text)
-            .join("\n")
-            .trim();
-
-        return Response.json({ reply: reply || "لم أتمكن من إيجاد إجابة." });
+        return Response.json({ reply: "تعذّر إكمال الإجابة ضمن الحد المسموح." });
     } catch (err: any) {
         console.error("assistant route error:", err);
-        const status = err?.status === 401 ? 502 : 500;
         return Response.json(
             { error: "تعذّر الاتصال بالمساعد. " + (err?.message ? `(${err.message})` : "") },
-            { status }
+            { status: 500 }
         );
     }
 }
