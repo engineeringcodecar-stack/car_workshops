@@ -15,7 +15,52 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MODEL = "gemini-flash-lite-latest";// نفس وثيقة السكيما الأصلية — بلا تغيير.
+// Alternate models; on 503/timeout fall back to the next one.
+const MODELS = ["gemini-flash-lite-latest", "gemini-3.6-flash"];
+const PER_CALL_TIMEOUT_MS = 12000;
+const OVERALL_DEADLINE_MS = 52000;
+
+async function callGeminiOnce(model: string, reqBody: any, apiKey: string) {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), PER_CALL_TIMEOUT_MS);
+    try {
+        const r = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+                body: JSON.stringify(reqBody),
+                signal: ctrl.signal,
+            }
+        );
+        if (!r.ok) return { ok: false as const, status: r.status };
+        return { ok: true as const, data: await r.json() };
+    } finally {
+        clearTimeout(to);
+    }
+}
+
+async function callGemini(reqBody: any, apiKey: string, deadline: number) {
+    let last = "unknown";
+    for (let attempt = 0; attempt < 4; attempt++) {
+        if (Date.now() > deadline) break;
+        const model = MODELS[attempt % MODELS.length];
+        try {
+            const res = await callGeminiOnce(model, reqBody, apiKey);
+            if (res.ok) return res.data;
+            last = String(res.status);
+            if (res.status === 400 || res.status === 401 || res.status === 403 || res.status === 404) {
+                throw new Error("gemini-" + res.status);
+            }
+        } catch (e: any) {
+            const msg = e?.name === "AbortError" ? "timeout" : (e?.message || "error");
+            if (typeof msg === "string" && msg.startsWith("gemini-")) throw e;
+            last = msg;
+        }
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
+    throw new Error(last);
+}// نفس وثيقة السكيما الأصلية — بلا تغيير.
 const SCHEMA_DOC = `قاعدة البيانات (PostgreSQL) لورشة سيارات. الجداول والأعمدة المهمة:
 
 branches(id uuid, name text)  -- الفروع
@@ -118,7 +163,7 @@ export async function POST(request: Request) {
     }
 
     const supabaseAdmin = guard.supabaseAdmin;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+    const deadline = Date.now() + OVERALL_DEADLINE_MS;
 
     const reqBody: any = {
         systemInstruction: { parts: [{ text: SYSTEM }] },
@@ -130,22 +175,18 @@ export async function POST(request: Request) {
         let loops = 0;
         while (loops < 8) {
             loops++;
-            const r = await fetch(url, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-                body: JSON.stringify(reqBody),
-            });
-
-            if (!r.ok) {
-                const t = await r.text();
-                console.error("gemini error:", r.status, t.slice(0, 400));
+            let data: any;
+            try {
+                data = await callGemini(reqBody, apiKey, deadline);
+            } catch (e: any) {
+                const code = String(e?.message || "");
+                const isKey = code === "gemini-401" || code === "gemini-403";
+                console.error("gemini error:", code);
                 return Response.json(
-                    { error: "تعذّر الاتصال بالمساعد. (" + r.status + ")" },
-                    { status: r.status === 401 || r.status === 403 ? 502 : 500 }
+                    { error: isKey ? "assistant-auth-" + code : "GEMINI_BUSY" },
+                    { status: isKey ? 502 : 503 }
                 );
             }
-
-            const data = await r.json();
             const parts: any[] = data?.candidates?.[0]?.content?.parts || [];
             const calls = parts.filter((p) => p.functionCall);
 
