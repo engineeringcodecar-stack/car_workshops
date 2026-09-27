@@ -21,6 +21,8 @@ type WorkOrderList = {
     estimated_duration: number;
     is_delayed: boolean;
     selected_services: any[] | null;
+    contract_id?: string | null;
+    contract?: { name: string } | null;
 };
 
 export default function WorkOrdersListPage() {
@@ -103,7 +105,7 @@ export default function WorkOrdersListPage() {
     const fetchOrders = async () => {
         let query = supabase
             .from('inspection_reports')
-            .select(`id, report_number, status, created_at, estimated_duration, is_delayed, odometer_reading, odometer_unit, bay_number, start_time, elapsed_time, vehicles (make, model, plate_number, clients (name)), selected_services`)
+            .select(`id, report_number, status, created_at, estimated_duration, is_delayed, odometer_reading, odometer_unit, bay_number, start_time, elapsed_time, contract_id, contract:contracts(name), vehicles (make, model, plate_number, clients (name)), selected_services`)
             .neq('status', 'تم الانتهاء')
             .neq('status', 'ملغى')
             // NULL-safe: `<>` is false for NULL, so a plain .neq dropped legacy rows with no order_type.
@@ -229,6 +231,11 @@ export default function WorkOrdersListPage() {
                                             }`}>
                                                 {order.status}
                                             </span>
+                                            {order.contract_id && (
+                                                <span className="text-[10px] font-bold px-2 py-1 rounded-lg w-max bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                                    عقد {order.contract?.name || ""}
+                                                </span>
+                                            )}
                                         </div>
                                         <span className="font-mono text-muted-foreground font-bold text-lg">#{order.report_number}</span>
                                     </div>

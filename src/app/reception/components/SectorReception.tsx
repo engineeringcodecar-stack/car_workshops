@@ -15,6 +15,8 @@ import { withCommas, digitsOnly } from "@/lib/format";
 import { PrintableInspectionReport } from "@/components/PrintableInspectionReport";
 import { emptyInspection } from "@/lib/comprehensiveInspection";
 import { syncOrderToGoogleSheets } from "@/lib/googleSheetsSync";
+import { useContracts, lastContractForVehicle } from "@/lib/contracts";
+import ContractSelect from "@/components/ContractSelect";
 
 type Step = 1 | 2 | 3;
 
@@ -429,6 +431,10 @@ export default function SectorReception({
     const [odometerUnit, setOdometerUnit] = useState<'km' | 'mi'>('km');
     // Future odometer = current reading + a service interval (km auto-converted to miles).
     const [futureOdometer, setFutureOdometer] = useState("");
+    // جهة التعاقد: "" = an ordinary cash customer, otherwise the contract this
+    // order is billed to on credit (آجل) — it then lands in the contracts tab.
+    const [contractId, setContractId] = useState("");
+    const contracts = useContracts();
     const FUTURE_INTERVALS = [3000, 5000, 8000, 10000];
     const addFutureKm = (km: number) => {
         const base = parseInt(odometer || "0") || 0;
@@ -525,13 +531,14 @@ export default function SectorReception({
         if (!editId) return;
         const loadReport = async () => {
             const { data } = await supabase.from('inspection_reports')
-                .select(`id, status, notes, total_price, odometer_reading, odometer_unit, order_type, selected_services, branch_id, bay_number, receptionist_id,
+                .select(`id, status, notes, total_price, odometer_reading, odometer_unit, order_type, selected_services, branch_id, bay_number, receptionist_id, contract_id,
                          vehicles(id, make, model, engine_size, plate_number, booklet_serial, clients(id, name, phone))`)
                 .eq('id', editId).single();
 
             if (data) {
                 setEditReportId(data.id);
                 setIsSale((data as { order_type?: string }).order_type === 'sale');
+                setContractId((data as { contract_id?: string | null }).contract_id || "");
                 const vehicle = Array.isArray(data.vehicles) ? data.vehicles[0] : data.vehicles;
                 const client = vehicle ? (Array.isArray(vehicle.clients) ? vehicle.clients[0] : vehicle.clients) : null;
                 
@@ -621,6 +628,9 @@ export default function SectorReception({
             }
             if (tire) setTireSize([tire.width, tire.aspect, tire.diameter].filter(Boolean).join(" / "));
             if (changes) setBookletChanges(changes);
+            // A returning government car comes back already tagged to its contract.
+            const lastContract = await lastContractForVehicle(prefillVehicleId);
+            if (lastContract) setContractId(lastContract);
         };
         loadPrefill();
     }, [prefillVehicleId, editId]);
@@ -1118,6 +1128,7 @@ export default function SectorReception({
                     odometer_reading: parseInt(odometer || "0") || 0,
                     odometer_unit: odometerUnit,
                     order_type: isSale ? 'sale' : 'maintenance',
+                    contract_id: contractId || null,
                     notes, bay_number: bayNumber,
                     selected_services: [mergedPayload, ...extraEntries],
                     estimated_duration: calculatedDuration,
@@ -1157,6 +1168,7 @@ export default function SectorReception({
                     odometer_reading: parseInt(odometer || "0") || 0,
                     odometer_unit: odometerUnit,
                     order_type: isSale ? 'sale' : 'maintenance',
+                    contract_id: contractId || null,
                     status, total_price: parseFloat(totalPrice || "0"),
                     notes, bay_number: bayNumber, start_time: startTime,
                     selected_services: [paperPayload],
@@ -1193,6 +1205,7 @@ export default function SectorReception({
         setCustomServices([]);
         setBookletType("");
         setBookletChanges("");
+        setContractId("");
         setSelectedBranchId(newBranchId || "");
         setReceptionistName(employees.find(e => e.id === employeeId)?.name || ""); setSelectedTechnicianId(""); setAssignedTechnician("");
         setTotalPrice(""); setDiscount(""); setAmountReceived("");
@@ -1266,6 +1279,7 @@ export default function SectorReception({
                                 <label className="text-sm font-medium text-muted-foreground">اسم العميل <span className="text-rose-500">*</span></label>
                                 <input type="text" placeholder="مثال: أحمد محمد" className="input-field" value={name} onChange={e => setName(e.target.value)} />
                             </div>
+                            <ContractSelect contracts={contracts} value={contractId} onChange={setContractId} />
                             {branches.length > 0 && (employeeRole === 'Owner' || employeeRole === 'Admin' || !employeeBranchId) && (
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-muted-foreground">الفرع <span className="text-rose-500">*</span></label>
@@ -1965,6 +1979,9 @@ export default function SectorReception({
                             <h3 className="text-muted-foreground text-sm font-bold">ملخص</h3>
                             <div className="flex justify-between text-sm"><span className="text-muted-foreground">العميل</span><span className="font-bold">{name}</span></div>
                             <div className="flex justify-between text-sm"><span className="text-muted-foreground">السيارة</span><span className="font-bold">{make} {model} ({plateNumber})</span></div>
+                            {contractId && (
+                                <div className="flex justify-between text-sm"><span className="text-muted-foreground">جهة التعاقد</span><span className="font-bold text-amber-400">عقد {contracts.find(c => c.id === contractId)?.name || ""} (آجل)</span></div>
+                            )}
                             <div className="flex justify-between text-sm">
                                 <span className="text-muted-foreground">الخدمات المحتاجة للتغيير</span>
                                 <span className="font-bold text-rose-400">

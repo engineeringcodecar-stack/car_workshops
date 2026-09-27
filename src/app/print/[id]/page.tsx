@@ -25,7 +25,7 @@ export default function PrintPage() {
                 .select(`
                     id, report_number, status, order_type, total_price, created_at, completed_at, odometer_reading,
                     estimated_duration, elapsed_time, start_time, selected_services, notes, branch_id, vehicle_id,
-                    branches(id, name),
+                    branches(id, name), contract:contracts(name),
                     vehicles (make, model, plate_number, engine_size, booklet_serial, clients (name, phone)),
                     receptionist:receptionist_id(name)
                 `)

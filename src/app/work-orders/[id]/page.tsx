@@ -48,6 +48,8 @@ function splitTechNames(raw: string): string[] {
 type WorkOrder = {
     id: string;
     report_number: number;
+    contract_id?: string | null;
+    contract?: { name: string } | null;
     status: string;
     order_type?: string;
     estimated_duration: number;
@@ -286,7 +288,7 @@ export default function WorkOrderDetailPage() {
     const fetchOrder = async () => {
         const { data } = await supabase
             .from('inspection_reports')
-            .select(`id, report_number, status, order_type, estimated_duration, elapsed_time, start_time, completed_at, is_delayed, odometer_reading, odometer_unit, technician_rating, technician_rating_notes, total_price, bay_number, notes, selected_services, branch_id, vehicle_id, branches(id, name), vehicles (make, model, plate_number, engine_size, booklet_serial, clients (name, phone)), receptionist:receptionist_id(name)`)
+            .select(`id, report_number, status, order_type, estimated_duration, elapsed_time, start_time, completed_at, is_delayed, odometer_reading, odometer_unit, technician_rating, technician_rating_notes, total_price, bay_number, notes, selected_services, branch_id, vehicle_id, contract_id, contract:contracts(name), branches(id, name), vehicles (make, model, plate_number, engine_size, booklet_serial, clients (name, phone)), receptionist:receptionist_id(name)`)
             .eq('id', id)
             .single();
 
@@ -784,6 +786,11 @@ export default function WorkOrderDetailPage() {
                         </h1>
                     </div>
                     <p className="text-muted-foreground font-bold text-sm bg-muted inline-block px-3 py-1 rounded-lg border border-border">{order.vehicles?.clients?.name} - {order.vehicles?.make} {order.vehicles?.model}</p>
+                    {order.contract_id && (
+                        <p className="mt-2 mr-2 text-amber-400 font-bold text-sm bg-amber-500/10 inline-block px-3 py-1 rounded-lg border border-amber-500/30">
+                            عقد {order.contract?.name || ""} · آجل
+                        </p>
+                    )}
                     {(order.selected_services?.[0] as any)?.driverRoute && (
                         <p className="mt-2 text-muted-foreground font-bold text-sm bg-muted inline-block px-3 py-1 rounded-lg border border-border">
                             خط السائق: {(order.selected_services?.[0] as any)?.driverRoute}

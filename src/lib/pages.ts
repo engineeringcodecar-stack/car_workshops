@@ -12,6 +12,7 @@ export const APP_PAGES: AppPage[] = [
     { key: 'work-orders', href: '/work-orders', label: 'ساحة الورشة (العمل الحي)' },
     { key: 'audit', href: '/audit', label: 'التدقيق والمحاسبة' },
     { key: 'customers', href: '/customers', label: 'سجل العملاء والمركبات' },
+    { key: 'contracts', href: '/contracts', label: 'العقود الحكومية (الآجل)' },
     { key: 'reports', href: '/reports', label: 'الفواتير والتقارير (PDF)' },
     { key: 'technician-report', href: '/technician-report', label: 'تقرير الفنيين اليومي' },
     { key: 'financial-reports', href: '/financial-reports', label: 'السجلات والدفاتر (Excel)' },

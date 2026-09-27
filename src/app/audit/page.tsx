@@ -97,7 +97,7 @@ export default function AuditPage() {
         try {
             // 1. Fetch pending orders (status = 'تم الانتهاء', order_type !== 'sale', and accounted is not true)
             let qPending = supabase.from('inspection_reports')
-                .select(`id, report_number, status, order_type, created_at, completed_at, total_price, odometer_reading, selected_services, branch_id, vehicles(make, model, plate_number, clients(name, phone)), branches(name), receptionist:receptionist_id(name)`)
+                .select(`id, report_number, status, order_type, created_at, completed_at, total_price, odometer_reading, selected_services, branch_id, contract_id, contract:contracts(name), vehicles(make, model, plate_number, clients(name, phone)), branches(name), receptionist:receptionist_id(name)`)
                 .eq('status', 'تم الانتهاء')
                 .neq('order_type', 'sale')
                 // Not yet accounted = accounted is missing (NULL, a freshly finished order) OR not 'true'.
@@ -124,7 +124,7 @@ export default function AuditPage() {
             // ACCOUNTING date (pricing.accountedAt) — one day at a time — because the money enters
             // the income on the day it was collected/accounted, not the day the car was received.
             let qClosed = supabase.from('inspection_reports')
-                .select(`id, report_number, status, order_type, created_at, completed_at, total_price, odometer_reading, selected_services, branch_id, vehicles(make, model, plate_number, clients(name, phone)), branches(name), receptionist:receptionist_id(name)`)
+                .select(`id, report_number, status, order_type, created_at, completed_at, total_price, odometer_reading, selected_services, branch_id, contract_id, contract:contracts(name), vehicles(make, model, plate_number, clients(name, phone)), branches(name), receptionist:receptionist_id(name)`)
                 .eq('status', 'تم الانتهاء')
                 .eq('selected_services->0->pricing->>accounted', 'true')
                 .gte('selected_services->0->pricing->>accountedAt', startUTC)
@@ -138,7 +138,7 @@ export default function AuditPage() {
             // Product sales (بيع منتج) are cash-settled at the point of sale, so they count as
             // income on their SALE date (created_at) — included in the daily "closed" income.
             let qSales = supabase.from('inspection_reports')
-                .select(`id, report_number, status, order_type, created_at, completed_at, total_price, odometer_reading, selected_services, branch_id, vehicles(make, model, plate_number, clients(name, phone)), branches(name), receptionist:receptionist_id(name)`)
+                .select(`id, report_number, status, order_type, created_at, completed_at, total_price, odometer_reading, selected_services, branch_id, contract_id, contract:contracts(name), vehicles(make, model, plate_number, clients(name, phone)), branches(name), receptionist:receptionist_id(name)`)
                 .eq('order_type', 'sale')
                 .gte('created_at', startUTC)
                 .lte('created_at', endUTC)
@@ -322,7 +322,10 @@ export default function AuditPage() {
             const grand = (freshTotal ?? 0) || num(o.total_price) || invoiceLines(o).reduce((s, l) => s + l.price, 0);
             const inp = getInput(o);
             const discount = num(inp.discount);
-            const received = inp.received === "" ? (grand - discount) : num(inp.received);
+            // A contract (آجل) invoice is closed onto the contract's balance: nothing is
+            // collected at the desk unless the accountant types an amount. Everyone else
+            // defaults to paying the full net, as before.
+            const received = inp.received === "" ? (o.contract_id ? 0 : grand - discount) : num(inp.received);
             if (discount > grand) { showError("خطأ", "الخصم أكبر من المجموع الكلي."); return; }
             if (received > (grand - discount)) { showError("خطأ", "المبلغ الواصل أكبر من الصافي المطلوب."); return; }
             const net = grand - discount;
@@ -558,6 +561,11 @@ export default function AuditPage() {
                                     <div className="flex items-center gap-2 min-w-[140px] flex-1">
                                         <User size={16} className="text-blue-400 shrink-0" />
                                         <span className="font-bold text-sm truncate">{c?.name || "عميل نقدي"}</span>
+                                        {o.contract_id && (
+                                            <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30" title="فاتورة آجلة على العقد">
+                                                عقد {o.contract?.name || ""} · آجل
+                                            </span>
+                                        )}
                                     </div>
                                     <div className="flex items-center gap-2 min-w-[140px] flex-1">
                                         <Car size={16} className="text-rose-400 shrink-0" />
@@ -631,9 +639,14 @@ export default function AuditPage() {
                                                         </div>
                                                         <div>
                                                             <label className="text-xs text-muted-foreground block mb-1">المبلغ الواصل (د.ع)</label>
-                                                            <input inputMode="numeric" dir="ltr" value={withCommas(inp.received)} onChange={e => setInput(o.id, 'received', digitsOnly(e.target.value))} placeholder={withCommas(net)} className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-sm text-right focus:outline-none focus:border-emerald-500 font-bold" />
+                                                            <input inputMode="numeric" dir="ltr" value={withCommas(inp.received)} onChange={e => setInput(o.id, 'received', digitsOnly(e.target.value))} placeholder={o.contract_id ? "0" : withCommas(net)} className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-sm text-right focus:outline-none focus:border-emerald-500 font-bold" />
                                                         </div>
                                                     </div>
+                                                    {o.contract_id && (
+                                                        <p className="text-[11px] text-amber-400 leading-relaxed">
+                                                            فاتورة آجلة على عقد {o.contract?.name || ""}: تُغلق بصفر واصل ويُضاف صافيها إلى رصيد العقد. اكتب مبلغاً فقط إذا دُفع شيء الآن.
+                                                        </p>
+                                                    )}
                                                     <div className="flex items-center justify-between text-sm pt-1 border-t border-border/60">
                                                         <span className="text-muted-foreground">الصافي بعد الخصم</span>
                                                         <span className="font-bold text-foreground">{net.toLocaleString('en-US')} د.ع</span>

@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/AuthProvider";
 import { showSuccess, showError } from "@/lib/alerts";
 import { digitsOnly, decimalsOnly, withCommasDecimal } from "@/lib/format";
+import { useContracts } from "@/lib/contracts";
+import ContractSelect from "@/components/ContractSelect";
 import { ShoppingCart, ArrowRight, Plus, Trash2, Printer, Loader2, CheckCircle2 } from "lucide-react";
 
 type Product = { name: string; qty: string; price: string };
@@ -33,6 +35,10 @@ export default function SaleForm({
     const [originalAccountedAt, setOriginalAccountedAt] = useState<string | null>(null);
     const [customerName, setCustomerName] = useState("");
     const [customerPhone, setCustomerPhone] = useState("");
+    // جهة التعاقد: a sale billed to a contract is on credit — nothing is collected
+    // at the counter, the amount goes onto the contract's balance instead.
+    const [contractId, setContractId] = useState("");
+    const contracts = useContracts();
     const [products, setProducts] = useState<Product[]>([{ name: "", qty: "1", price: "" }]);
     const [discount, setDiscount] = useState("");
     const [productNames, setProductNames] = useState<string[]>([]);
@@ -56,10 +62,11 @@ export default function SaleForm({
     useEffect(() => {
         if (!editId) return;
         (async () => {
-            const { data } = await supabase.from("inspection_reports").select("id, branch_id, selected_services").eq("id", editId).single();
+            const { data } = await supabase.from("inspection_reports").select("id, branch_id, contract_id, selected_services").eq("id", editId).single();
             if (!data) return;
             setEditReportId(data.id);
             if (data.branch_id) setSelectedBranchId(data.branch_id);
+            setContractId(data.contract_id || "");
             const payload = Array.isArray(data.selected_services) ? data.selected_services[0] : data.selected_services;
             if (payload) {
                 setCustomerName(payload.customerName || "");
@@ -109,7 +116,8 @@ export default function SaleForm({
                 pricing: {
                     grandTotal: String(total),
                     discount: String(discountValue),
-                    amountReceived: String(netTotal),
+                    // On a contract (آجل) nothing is collected at the counter.
+                    amountReceived: String(contractId ? 0 : netTotal),
                     accounted: true,
                     // Keep the original settlement moment on edit; stamp "now" only for a new sale.
                     accountedAt: (editReportId && originalAccountedAt) || new Date().toISOString(),
@@ -119,6 +127,7 @@ export default function SaleForm({
             if (editReportId) {
                 const { error } = await supabase.from("inspection_reports").update({
                     branch_id: branchId,
+                    contract_id: contractId || null,
                     // Net, so the daily income matches what was actually collected —
                     // same convention the accounting page uses for maintenance invoices.
                     total_price: netTotal,
@@ -133,6 +142,7 @@ export default function SaleForm({
                     vehicle_id: null,
                     receptionist_id: employeeId,
                     order_type: "sale",
+                    contract_id: contractId || null,
                     status: "تم الانتهاء",
                     odometer_reading: 0,
                     total_price: netTotal,
@@ -156,6 +166,7 @@ export default function SaleForm({
         setOriginalAccountedAt(null);
         setCustomerName("");
         setCustomerPhone("");
+        setContractId("");
         setProducts([{ name: "", qty: "1", price: "" }]);
         setDiscount("");
         router.replace("/reception?sale=1");
@@ -290,6 +301,7 @@ export default function SaleForm({
                             <label className="text-sm font-medium text-muted-foreground">رقم الهاتف</label>
                             <input type="text" inputMode="numeric" dir="ltr" value={customerPhone} onChange={(e) => setCustomerPhone(digitsOnly(e.target.value))} placeholder="—" className="input-field text-right" />
                         </div>
+                        <ContractSelect className="sm:col-span-2" contracts={contracts} value={contractId} onChange={setContractId} />
                     </div>
                 </div>
 

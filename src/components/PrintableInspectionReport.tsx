@@ -393,6 +393,8 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
                             <div>الاسم: <Val v={client.name} w={130} /></div>
                             <div>رقم الهاتف: <Val v={client.phone} w={115} /></div>
                             {data?.driverRoute ? <div>خط السائق: <Val v={data.driverRoute} w={130} /></div> : null}
+                            {/* Government contract (آجل): the body being invoiced, printed so the sheet can go to them. */}
+                            {report?.contract?.name ? <div>جهة التعاقد: <span style={{ fontWeight: 800 }}>عقد {report.contract.name} (آجل)</span></div> : null}
                         </div>
                     </div>
                     <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '5px 9px' }}>

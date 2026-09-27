@@ -22,6 +22,7 @@ import {
     FileSpreadsheet,
     ClipboardCheck,
     UserCircle,
+    Landmark,
 } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import NotificationBell from "./NotificationBell";
@@ -84,6 +85,7 @@ export function Sidebar() {
             title: "العملاء والمركبات (CRM)",
             items: [
                 { href: "/customers", label: "سجل العملاء والمركبات", icon: <Users size={20} /> },
+                { href: "/contracts", label: "العقود الحكومية", icon: <Landmark size={20} /> },
             ]
         },
         {
@@ -160,6 +162,8 @@ export function Sidebar() {
             if (item.href === '/technician-report') return false;
             if (item.href === '/financial-reports') return false;
             if (item.href === '/hr/employees') return false;
+            // العقود: money on credit — only for staff explicitly granted the tab.
+            if (item.href === '/contracts') return false;
             if (item.href === '/settings') return !!permissionEmployees;
 
             return true;

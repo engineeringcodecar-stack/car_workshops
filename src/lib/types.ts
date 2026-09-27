@@ -30,6 +30,78 @@ export interface Database {
         }
         Relationships: []
       }
+      contracts: {
+        Row: {
+          id: string
+          name: string
+          notes: string | null
+          is_active: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          notes?: string | null
+          is_active?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          notes?: string | null
+          is_active?: boolean
+          created_at?: string
+        }
+        Relationships: []
+      }
+      contract_payments: {
+        Row: {
+          id: string
+          contract_id: string
+          branch_id: string | null
+          amount: number
+          paid_at: string
+          note: string | null
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          contract_id: string
+          branch_id?: string | null
+          amount: number
+          paid_at?: string
+          note?: string | null
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          contract_id?: string
+          branch_id?: string | null
+          amount?: number
+          paid_at?: string
+          note?: string | null
+          created_by?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contract_payments_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contract_payments_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       employees: {
         Row: {
           id: string
@@ -176,6 +248,7 @@ export interface Database {
           technician_id: string | null
           technician_rating: string | null
           technician_rating_notes: string | null
+          contract_id: string | null
           selected_services: any[]
         }
         Insert: {
@@ -202,6 +275,7 @@ export interface Database {
           technician_id?: string | null
           technician_rating?: string | null
           technician_rating_notes?: string | null
+          contract_id?: string | null
           selected_services?: any[]
         }
         Update: {
@@ -228,9 +302,17 @@ export interface Database {
           technician_id?: string | null
           technician_rating?: string | null
           technician_rating_notes?: string | null
+          contract_id?: string | null
           selected_services?: any[]
         }
         Relationships: [
+          {
+            foreignKeyName: "inspection_reports_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "inspection_reports_branch_id_fkey"
             columns: ["branch_id"]

@@ -7,6 +7,8 @@ import { digitsOnly, withCommas } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import { Loader2, ArrowRight, CheckCircle2, Printer } from "lucide-react";
 import { showError } from "@/lib/alerts";
+import { useContracts, lastContractForVehicle } from "@/lib/contracts";
+import ContractSelect from "@/components/ContractSelect";
 import {
     INSPECTION_SECTIONS, INSPECTION_STATUSES, emptyInspection, InspectionStatus,
 } from "@/lib/comprehensiveInspection";
@@ -32,6 +34,9 @@ export default function InspectionForm({
     const [engineSize, setEngineSize] = useState("");
     const [odometer, setOdometer] = useState("");
     const [technician, setTechnician] = useState("");
+    // جهة التعاقد: "" = ordinary customer, else the contract this inspection belongs to.
+    const [contractId, setContractId] = useState("");
+    const contracts = useContracts();
     // Link to an EXISTING customer/vehicle (chosen from search) so no duplicate is created.
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
@@ -77,6 +82,15 @@ export default function InspectionForm({
     };
 
     const clearLink = () => { setSelectedClientId(null); setSelectedVehicleId(null); };
+
+    // A government car picked from search (or opened from its file) comes back
+    // already tagged to its contract. Only ever pre-selects — never clears a choice.
+    useEffect(() => {
+        if (!selectedVehicleId) return;
+        let alive = true;
+        lastContractForVehicle(selectedVehicleId).then(id => { if (alive && id) setContractId(id); });
+        return () => { alive = false; };
+    }, [selectedVehicleId]);
 
     // Preselected vehicle (opened from a customer's file) — load + link it automatically.
     useEffect(() => {
@@ -147,6 +161,7 @@ export default function InspectionForm({
                 odometer_reading: parseInt(odometer || "0") || 0,
                 odometer_unit: "km",
                 order_type: "maintenance",
+                contract_id: contractId || null,
                 status: "تم الانتهاء",
                 total_price: 0,
                 selected_services: [payload],
@@ -236,6 +251,7 @@ export default function InspectionForm({
                     <Field label="حجم المحرك"><input className="input-field" value={engineSize} onChange={e => setEngineSize(e.target.value)} placeholder="—" /></Field>
                     <Field label="عداد المسافة"><input className="input-field text-right" dir="ltr" inputMode="numeric" value={withCommas(odometer)} onChange={e => setOdometer(digitsOnly(e.target.value))} placeholder="0" /></Field>
                     <Field label="الفني المسؤول"><input className="input-field" value={technician} onChange={e => setTechnician(e.target.value)} placeholder="—" /></Field>
+                    <ContractSelect className="col-span-2" contracts={contracts} value={contractId} onChange={setContractId} />
                 </div>
 
                 {/* Progress summary */}
