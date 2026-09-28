@@ -21,16 +21,17 @@ import Link from "next/link";
 import * as XLSX from "xlsx";
 import {
     Landmark, Car, FileText, ClipboardCheck, Wallet, Loader2, RefreshCcw, Download,
-    Plus, Trash2, Printer, ExternalLink, Search, X, Clock, ShoppingCart,
+    Plus, Trash2, Printer, ExternalLink, Search, Clock, ShoppingCart, Edit2,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/AuthProvider";
 import { useContracts, invoiceMoney } from "@/lib/contracts";
 import { withCommas, digitsOnly } from "@/lib/format";
 import { showSuccess, showError, showConfirm } from "@/lib/alerts";
+import CarFile from "./CarFile";
 
 type Kind = "maintenance" | "inspection" | "sale";
-type Tab = "vehicles" | "orders" | "inspections" | "payments";
+type Tab = "vehicles" | "orders" | "payments";
 
 type Joined<T> = T | T[] | null;
 
@@ -250,7 +251,8 @@ export default function ContractsPage() {
     // ---------- Tabs & filters ----------
     const [tab, setTab] = useState<Tab>("vehicles");
     const [search, setSearch] = useState("");
-    const [vehicleFilter, setVehicleFilter] = useState<{ id: string; label: string } | null>(null);
+    // ملف السيارة: the car whose file is open (null = none).
+    const [fileVehicleId, setFileVehicleId] = useState<string | null>(null);
     const [kindFilter, setKindFilter] = useState<"" | Kind>("");
     const [dateFrom, setDateFrom] = useState("");
     const [dateTo, setDateTo] = useState("");
@@ -290,24 +292,31 @@ export default function ContractsPage() {
     const orders = useMemo(() => rows.filter(r =>
         r.kind !== "inspection"
         && (!kindFilter || r.kind === kindFilter)
-        && (!vehicleFilter || r.vehicle_id === vehicleFilter.id)
         && (!dateFrom || iraqDay(r.created_at) >= dateFrom)
         && (!dateTo || iraqDay(r.created_at) <= dateTo)
-    ), [rows, kindFilter, vehicleFilter, dateFrom, dateTo]);
+    ), [rows, kindFilter, dateFrom, dateTo]);
     const shownOrders = orders.filter(matches);
     const ordersTotals = shownOrders.reduce((t, r) => {
         if (r.money.state === "closed") { t.net += r.money.net; t.received += r.money.received; }
         return t;
     }, { net: 0, received: 0 });
 
-    const inspectionsList = live.filter(r => r.hasInspection
-        && (!vehicleFilter || r.vehicle_id === vehicleFilter.id)
-        && matches(r));
-
-    const openVehicle = (id: string, label: string) => {
-        setVehicleFilter({ id, label });
-        setKindFilter("");
-        setTab("orders");
+    // Delete a work order from the contract (Owner/Admin only, like the customer file).
+    const [deletingId, setDeletingId] = useState<string | null>(null);
+    const deleteOrder = async (r: Row) => {
+        const ok = await showConfirm(
+            "حذف أمر العمل",
+            `حذف أمر العمل #${r.report_number} نهائياً؟ سيُحذف من حساب العقد ولا يمكن التراجع.`,
+            "حذف",
+            true,
+        );
+        if (!ok) return;
+        setDeletingId(r.id);
+        const { error } = await supabase.from("inspection_reports").delete().eq("id", r.id);
+        setDeletingId(null);
+        if (error) { showError("خطأ", error.message); return; }
+        showSuccess("تم الحذف", `حُذف أمر العمل #${r.report_number}.`);
+        load();
     };
 
     // ---------- Payments ----------
@@ -434,7 +443,6 @@ export default function ContractsPage() {
     const TABS: { key: Tab; label: string; icon: React.ReactNode; count: number }[] = [
         { key: "vehicles", label: "السيارات", icon: <Car size={16} />, count: vehicles.length },
         { key: "orders", label: "أوامر العمل والصيانة", icon: <FileText size={16} />, count: summary.workOrders + summary.sales },
-        { key: "inspections", label: "الفحص الشامل", icon: <ClipboardCheck size={16} />, count: summary.inspections },
         { key: "payments", label: "الدفعات", icon: <Wallet size={16} />, count: payments.length },
     ];
 
@@ -454,13 +462,13 @@ export default function ContractsPage() {
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                         {contracts.length > 1 && (
-                            <select value={contractId} onChange={e => { setPickedContractId(e.target.value); setVehicleFilter(null); }}
+                            <select value={contractId} onChange={e => { setPickedContractId(e.target.value); setFileVehicleId(null); }}
                                 className="bg-card border border-amber-500/40 rounded-xl px-3 py-2.5 text-sm font-bold text-amber-300 cursor-pointer">
                                 {contracts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                             </select>
                         )}
                         {!isBranchPinned && branches.length > 1 && (
-                            <select value={branchFilter} onChange={e => { setBranchFilter(e.target.value); setVehicleFilter(null); }}
+                            <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)}
                                 className="bg-card border border-border rounded-xl px-3 py-2.5 text-sm text-foreground cursor-pointer">
                                 <option value="">كل الفروع</option>
                                 {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -484,10 +492,6 @@ export default function ContractsPage() {
                         <Link href={`/reception?contract=${contract.id}`}
                             className="px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold flex items-center gap-2 shadow-lg shadow-amber-500/20">
                             <Plus size={18} /> إنشاء ورقة عمل
-                        </Link>
-                        <Link href={`/reception?contract=${contract.id}&inspection=1`}
-                            className="px-4 py-3 rounded-2xl bg-card border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 font-bold flex items-center gap-2">
-                            <ClipboardCheck size={16} /> فحص شامل
                         </Link>
                         <Link href={`/reception?contract=${contract.id}&sale=1`}
                             className="px-4 py-3 rounded-2xl bg-card border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 font-bold flex items-center gap-2">
@@ -548,12 +552,6 @@ export default function ContractsPage() {
                                 placeholder="بحث برقم الأمر، السيارة، رقم اللوحة، أو اسم السائق..."
                                 className="w-full bg-card border border-border rounded-xl py-2.5 pr-10 pl-3 text-sm focus:outline-none focus:border-amber-500/50" />
                         </div>
-                        {vehicleFilter && tab !== "vehicles" && (
-                            <button onClick={() => setVehicleFilter(null)}
-                                className="px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm font-bold flex items-center gap-2">
-                                السيارة: {vehicleFilter.label} <X size={14} />
-                            </button>
-                        )}
                     </div>
                 )}
 
@@ -594,7 +592,7 @@ export default function ContractsPage() {
                                                                     ورقة عمل
                                                                 </Link>
                                                             )}
-                                                            <button onClick={() => openVehicle(v.id, `${v.label}${v.plate ? ` (${v.plate})` : ""}`)}
+                                                            <button onClick={() => setFileVehicleId(v.id)}
                                                                 className="px-3 py-1.5 rounded-lg bg-muted hover:bg-amber-500/20 border border-border text-xs font-bold whitespace-nowrap">
                                                                 ملف السيارة
                                                             </button>
@@ -677,6 +675,16 @@ export default function ContractsPage() {
                                                                     )}
                                                                     <button onClick={() => window.open(`/print/${r.id}?mode=full`, "_blank")} title="طباعة"
                                                                         className="p-2 rounded-lg bg-muted hover:bg-emerald-500/20 border border-border"><Printer size={14} /></button>
+                                                                    {contract && (
+                                                                        <Link href={`/reception?edit=${r.id}&contract=${contract.id}`} title="تعديل"
+                                                                            className="p-2 rounded-lg bg-muted hover:bg-amber-500/20 border border-border"><Edit2 size={14} /></Link>
+                                                                    )}
+                                                                    {isAdmin && (
+                                                                        <button onClick={() => deleteOrder(r)} disabled={deletingId === r.id} title="حذف"
+                                                                            className="p-2 rounded-lg bg-muted hover:bg-rose-500/20 border border-border text-rose-400 disabled:opacity-60">
+                                                                            {deletingId === r.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                                                                        </button>
+                                                                    )}
                                                                 </div>
                                                             </td>
                                                         </tr>
@@ -695,38 +703,6 @@ export default function ContractsPage() {
                                     </div>
                                 )}
                             </div>
-                        )}
-
-                        {/* ── الفحص الشامل ── */}
-                        {tab === "inspections" && (
-                            inspectionsList.length === 0 ? <Empty text="لا توجد فحوصات شاملة على هذا العقد." /> : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                                    {inspectionsList.map(r => (
-                                        <div key={r.id} className="glass-card p-5 rounded-2xl border border-border space-y-3">
-                                            <div className="flex justify-between items-start gap-2">
-                                                <div>
-                                                    <div className="font-bold">{r.vehicleLabel}</div>
-                                                    <div className="text-xs text-muted-foreground font-mono">{r.plate || "—"}</div>
-                                                </div>
-                                                <span className="font-mono text-muted-foreground text-sm">#{r.report_number}</span>
-                                            </div>
-                                            <div className="text-xs text-muted-foreground space-y-1">
-                                                <div>السائق: <span className="text-foreground">{r.driver || "—"}</span></div>
-                                                <div>التاريخ: <span className="text-foreground">{fmtDate(r.created_at)}</span> · {r.branchName || "—"}</div>
-                                                <div>{r.kind === "inspection" ? "فحص مستقل" : "ضمن أمر عمل صيانة"}</div>
-                                            </div>
-                                            <div className="flex items-center gap-2 text-sm">
-                                                {r.ci_pct && <span className="px-2 py-1 rounded-lg bg-blue-500/10 text-blue-300 border border-blue-500/20 font-bold">{r.ci_pct}%</span>}
-                                                {r.ci_rating && <span className="px-2 py-1 rounded-lg bg-muted border border-border">{r.ci_rating}</span>}
-                                            </div>
-                                            <button onClick={() => window.open(`/inspection/${r.id}`, "_blank")}
-                                                className="w-full py-2 rounded-xl bg-blue-600/90 hover:bg-blue-500 text-white text-sm font-bold flex items-center justify-center gap-2">
-                                                <ClipboardCheck size={15} /> عرض تقرير الفحص
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )
                         )}
 
                         {/* ── الدفعات ── */}
@@ -813,6 +789,10 @@ export default function ContractsPage() {
                     </>
                 )}
             </div>
+            {fileVehicleId && contract && (
+                <CarFile contract={contract} vehicleId={fileVehicleId} canDelete={isAdmin}
+                    onClose={() => setFileVehicleId(null)} onChanged={load} />
+            )}
         </div>
     );
 }
