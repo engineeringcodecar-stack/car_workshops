@@ -70,6 +70,9 @@ function ReceptionContainer() {
     const saleParam = searchParams.get('sale');
     const inspectionParam = searchParams.get('inspection'); // vehicleId to inspect (from customer file)
     const vehicleParam = searchParams.get('vehicle'); // vehicleId to prefill a NEW work order (barcode scan flow)
+    // Contract (عقد) orders are only ever started from the contracts tab, which links here with
+    // ?contract=<id>. The forms read it themselves and tag the order; reception staff never pick it.
+    const contractParam = searchParams.get('contract');
     const [isWizardOpen, setIsWizardOpen] = useState(false);
     // When true the wizard opens as a direct product sale ("بيع منتج") instead of a work order.
     const [wizardSaleMode, setWizardSaleMode] = useState(false);
@@ -143,9 +146,10 @@ function ReceptionContainer() {
             setInspectionMode(true);
             setEditIsSale(null);
             setIsWizardOpen(true);
-        } else if (vehicleParam) {
+        } else if (vehicleParam || contractParam) {
             // Barcode scan flow -> /reception?vehicle=<vehicleId>: open a NEW work order
             // with the customer's known info prefilled (the form reads the param itself).
+            // Same for "إنشاء ورقة عمل" from the contracts tab -> /reception?contract=<id>.
             setWizardSaleMode(false);
             setInspectionMode(false);
             setEditIsSale(false);
@@ -155,7 +159,7 @@ function ReceptionContainer() {
             setInspectionMode(false);
             setEditIsSale(null);
         }
-    }, [editId, saleParam, inspectionParam, vehicleParam]);
+    }, [editId, saleParam, inspectionParam, vehicleParam, contractParam]);
 
     // Fetch branches on mount
     useEffect(() => {
@@ -536,6 +540,8 @@ function ReceptionContainer() {
             setWizardSaleMode(false);
             setInspectionMode(false);
             setEditIsSale(null);
+            // Opened from the contracts tab: go back there, not to the reception list.
+            if (contractParam) { router.push('/contracts'); return; }
             // scroll:false — we restore the remembered position ourselves once the
             // rows are back; letting the router jump to the top first would undo it.
             router.replace('/reception', { scroll: false });

@@ -21,7 +21,7 @@ import Link from "next/link";
 import * as XLSX from "xlsx";
 import {
     Landmark, Car, FileText, ClipboardCheck, Wallet, Loader2, RefreshCcw, Download,
-    Plus, Trash2, Printer, ExternalLink, Search, X, Clock,
+    Plus, Trash2, Printer, ExternalLink, Search, X, Clock, ShoppingCart,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/AuthProvider";
@@ -477,6 +477,25 @@ export default function ContractsPage() {
                     </div>
                 </div>
 
+                {/* The ONLY place a contract order is started: reception never picks the
+                    contract — these links carry it, and the form tags the order itself. */}
+                {contract && (
+                    <div className="flex flex-wrap gap-2">
+                        <Link href={`/reception?contract=${contract.id}`}
+                            className="px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold flex items-center gap-2 shadow-lg shadow-amber-500/20">
+                            <Plus size={18} /> إنشاء ورقة عمل
+                        </Link>
+                        <Link href={`/reception?contract=${contract.id}&inspection=1`}
+                            className="px-4 py-3 rounded-2xl bg-card border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 font-bold flex items-center gap-2">
+                            <ClipboardCheck size={16} /> فحص شامل
+                        </Link>
+                        <Link href={`/reception?contract=${contract.id}&sale=1`}
+                            className="px-4 py-3 rounded-2xl bg-card border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 font-bold flex items-center gap-2">
+                            <ShoppingCart size={16} /> بيع مواد
+                        </Link>
+                    </div>
+                )}
+
                 {contracts.length === 0 && !loading && (
                     <div className="glass-card p-8 rounded-3xl text-center text-muted-foreground">لا توجد عقود مفعّلة.</div>
                 )}
@@ -544,7 +563,7 @@ export default function ContractsPage() {
                     <>
                         {/* ── السيارات ── */}
                         {tab === "vehicles" && (
-                            shownVehicles.length === 0 ? <Empty text="لا توجد سيارات مسجلة على هذا العقد بعد. عند الاستقبال اختر «جهة التعاقد» ليظهر هنا." /> : (
+                            shownVehicles.length === 0 ? <Empty text="لا توجد سيارات مسجلة على هذا العقد بعد. اضغط «إنشاء ورقة عمل» فوق لتسجيل أول سيارة." /> : (
                                 <div className="glass-card rounded-3xl border border-border/50 overflow-x-auto">
                                     <table className="w-full text-sm text-right min-w-[760px]">
                                         <thead className="bg-muted/40 text-muted-foreground text-xs">
@@ -568,10 +587,18 @@ export default function ContractsPage() {
                                                     <td className="p-3">{fmtDate(v.last)}</td>
                                                     <td className="p-3 font-bold text-amber-300">{fmtMoney(v.due)}</td>
                                                     <td className="p-3">
-                                                        <button onClick={() => openVehicle(v.id, `${v.label}${v.plate ? ` (${v.plate})` : ""}`)}
-                                                            className="px-3 py-1.5 rounded-lg bg-muted hover:bg-amber-500/20 border border-border text-xs font-bold">
-                                                            ملف السيارة
-                                                        </button>
+                                                        <div className="flex gap-1.5 justify-end">
+                                                            {contract && (
+                                                                <Link href={`/reception?contract=${contract.id}&vehicle=${v.id}`}
+                                                                    className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold whitespace-nowrap">
+                                                                    ورقة عمل
+                                                                </Link>
+                                                            )}
+                                                            <button onClick={() => openVehicle(v.id, `${v.label}${v.plate ? ` (${v.plate})` : ""}`)}
+                                                                className="px-3 py-1.5 rounded-lg bg-muted hover:bg-amber-500/20 border border-border text-xs font-bold whitespace-nowrap">
+                                                                ملف السيارة
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))}

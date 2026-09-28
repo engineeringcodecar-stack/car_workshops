@@ -14,8 +14,8 @@ import { showSuccess } from "@/lib/alerts";
 import { withCommas, digitsOnly } from "@/lib/format";
 import { PrintableInspectionReport } from "@/components/PrintableInspectionReport";
 import { syncOrderToGoogleSheets } from "@/lib/googleSheetsSync";
-import { useContracts, lastContractForVehicle } from "@/lib/contracts";
-import ContractSelect from "@/components/ContractSelect";
+import { useContracts } from "@/lib/contracts";
+import ContractBanner from "@/components/ContractBanner";
 
 type Step = 1 | 2 | 3;
 
@@ -448,7 +448,10 @@ export default function StandardReception({
     const [futureOdometer, setFutureOdometer] = useState("");
     // جهة التعاقد: "" = an ordinary cash customer, otherwise the contract this
     // order is billed to on credit (آجل) — it then lands in the contracts tab.
-    const [contractId, setContractId] = useState("");
+    // Reception never picks it: a contract order is only started from the contracts
+    // tab, whose link carries ?contract=<id>. Editing reads it back from the order.
+    const contractFromUrl = searchParams.get('contract') || "";
+    const [contractId, setContractId] = useState(contractFromUrl);
     const contracts = useContracts();
     const [tireSize, setTireSize] = useState("");
     const FUTURE_INTERVALS = [3000, 5000, 8000, 10000];
@@ -672,9 +675,6 @@ export default function StandardReception({
             }
             if (tire) setTireSize([tire.width, tire.aspect, tire.diameter].filter(Boolean).join(" / "));
             if (changes) setBookletChanges(changes);
-            // A returning government car comes back already tagged to its contract.
-            const lastContract = await lastContractForVehicle(prefillVehicleId);
-            if (lastContract) setContractId(lastContract);
         };
         loadPrefill();
     }, [prefillVehicleId, editId]);
@@ -1243,7 +1243,7 @@ export default function StandardReception({
         setCustomServices([]);
         setBookletType("");
         setBookletChanges("");
-        setContractId("");
+        setContractId(contractFromUrl);
         setSelectedBranchId(newBranchId || "");
         setReceptionistName(employees.find(e => e.id === employeeId)?.name || ""); setSelectedTechnicianId(""); setAssignedTechnician("");
         setTotalPrice(""); setDiscount(""); setAmountReceived("");
@@ -1317,7 +1317,7 @@ export default function StandardReception({
                                 <label className="text-sm font-medium text-muted-foreground">اسم العميل <span className="text-rose-500">*</span></label>
                                 <input type="text" placeholder="مثال: أحمد محمد" className="input-field" value={name} onChange={e => setName(e.target.value)} />
                             </div>
-                            <ContractSelect contracts={contracts} value={contractId} onChange={setContractId} />
+                            <ContractBanner contracts={contracts} contractId={contractId} />
                             {isGarageBranch && (
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-muted-foreground">خط السائق</label>

@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/AuthProvider";
 import { showSuccess, showError } from "@/lib/alerts";
 import { digitsOnly, decimalsOnly, withCommasDecimal } from "@/lib/format";
 import { useContracts } from "@/lib/contracts";
-import ContractSelect from "@/components/ContractSelect";
+import ContractBanner from "@/components/ContractBanner";
 import { ShoppingCart, ArrowRight, Plus, Trash2, Printer, Loader2, CheckCircle2 } from "lucide-react";
 
 type Product = { name: string; qty: string; price: string };
@@ -36,8 +36,10 @@ export default function SaleForm({
     const [customerName, setCustomerName] = useState("");
     const [customerPhone, setCustomerPhone] = useState("");
     // جهة التعاقد: a sale billed to a contract is on credit — nothing is collected
-    // at the counter, the amount goes onto the contract's balance instead.
-    const [contractId, setContractId] = useState("");
+    // at the counter, the amount goes onto the contract's balance instead. Only set
+    // when opened from the contracts tab (?contract=<id>) or when editing such a sale.
+    const contractFromUrl = searchParams.get("contract") || "";
+    const [contractId, setContractId] = useState(contractFromUrl);
     const contracts = useContracts();
     const [products, setProducts] = useState<Product[]>([{ name: "", qty: "1", price: "" }]);
     const [discount, setDiscount] = useState("");
@@ -166,10 +168,10 @@ export default function SaleForm({
         setOriginalAccountedAt(null);
         setCustomerName("");
         setCustomerPhone("");
-        setContractId("");
+        setContractId(contractFromUrl);
         setProducts([{ name: "", qty: "1", price: "" }]);
         setDiscount("");
-        router.replace("/reception?sale=1");
+        router.replace(contractFromUrl ? `/reception?sale=1&contract=${contractFromUrl}` : "/reception?sale=1");
     };
 
     // ---------- Success screen ----------
@@ -301,7 +303,7 @@ export default function SaleForm({
                             <label className="text-sm font-medium text-muted-foreground">رقم الهاتف</label>
                             <input type="text" inputMode="numeric" dir="ltr" value={customerPhone} onChange={(e) => setCustomerPhone(digitsOnly(e.target.value))} placeholder="—" className="input-field text-right" />
                         </div>
-                        <ContractSelect className="sm:col-span-2" contracts={contracts} value={contractId} onChange={setContractId} />
+                        <ContractBanner className="sm:col-span-2" label="بيع مواد" contracts={contracts} contractId={contractId} />
                     </div>
                 </div>
 

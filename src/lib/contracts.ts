@@ -23,18 +23,6 @@ export function useContracts(): Contract[] {
     return contracts;
 }
 
-/** The contract this vehicle was last serviced under, so a returning government
- *  car comes back already tagged. null = an ordinary customer. */
-export async function lastContractForVehicle(vehicleId: string): Promise<string | null> {
-    const { data } = await supabase.from("inspection_reports")
-        .select("contract_id")
-        .eq("vehicle_id", vehicleId)
-        .not("contract_id", "is", null)
-        .order("created_at", { ascending: false })
-        .limit(1);
-    return data?.[0]?.contract_id ?? null;
-}
-
 const num = (v: unknown) => parseFloat(String(v ?? "").replace(/[^\d.]/g, "")) || 0;
 
 export type InvoiceState = "closed" | "pending" | "excluded" | "cancelled";
