@@ -9,11 +9,12 @@ import {
     Users, User, Search, Download, Plus, MapPin, Phone,
     Car, FileText, ChevronLeft, ChevronRight, ShieldAlert,
     Trash2, Edit2, FolderOpen, Calendar, Save, X, Wrench, Loader2,
-    CheckCircle2, ShieldCheck, Droplets, Gauge, RefreshCcw, Landmark
+    CheckCircle2, ShieldCheck, Droplets, Gauge, RefreshCcw, Landmark, ArrowLeftRight
 } from "lucide-react";
 import { showConfirm, showError, showSuccess } from "@/lib/alerts";
 import { INSPECTION_SECTIONS } from "@/lib/comprehensiveInspection";
 import { normalizeBookletCode } from "@/lib/booklet";
+import { useContracts } from "@/lib/contracts";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as XLSX from 'xlsx';
@@ -589,6 +590,41 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
             showSuccess("تم الحذف", "تم حذف الفاتورة بنجاح.");
         } else {
             showError("خطأ", `خطأ أثناء الحذف: ${error.message}`);
+        }
+    };
+
+    // Move a car (and every past visit of it) between the customers tab and a
+    // contract: for government cars registered as ordinary customers before the
+    // contracts tab existed, or to undo a car moved by mistake. Only the contract
+    // tag changes; closed invoices keep their recorded amounts.
+    const contracts = useContracts();
+    const [movingVehicleId, setMovingVehicleId] = useState<string | null>(null);
+    const moveVehicle = async (v: { id: string; make?: string; model?: string; plate_number?: string }, target: { id: string; name: string } | null) => {
+        const label = `${v.make || ""} ${v.model || ""}`.trim() + (v.plate_number ? ` (${v.plate_number})` : "");
+        const ok = await showConfirm(
+            target ? `نقل إلى عقد ${target.name}` : "إرجاع إلى العملاء",
+            target
+                ? `نقل السيارة ${label} وكل أوراق عملها السابقة إلى عقد ${target.name}؟ ستظهر في تبويب العقود بدل سجل العملاء. مبالغ الفواتير المغلقة لا تتغير.`
+                : `إرجاع السيارة ${label} وأوراق عملها من عقد ${contract?.name || ""} إلى سجل العملاء العادي؟`,
+            target ? "نقل" : "إرجاع",
+            false,
+        );
+        if (!ok) return;
+        setMovingVehicleId(v.id);
+        let q = supabase.from('inspection_reports').update({ contract_id: target ? target.id : null }).eq('vehicle_id', v.id);
+        q = target ? q.is('contract_id', null) : q.eq('contract_id', cid as string);
+        const { data, error } = await q.select('id');
+        setMovingVehicleId(null);
+        if (error) { showError("خطأ", error.message); return; }
+        const n = data?.length || 0;
+        showSuccess("تم النقل", target ? `نُقلت ${n} ورقة عمل إلى عقد ${target.name}.` : `أُعيدت ${n} ورقة عمل إلى سجل العملاء.`);
+        contractOnlyCache.current = null;
+        setRefreshTrigger(t => t + 1);
+        // The car's visits left this tab: close the file if nothing is left in it.
+        if (selectedProfile) {
+            const left = selectedProfile.allReports.filter(r => r.vehicle?.id !== v.id);
+            if (left.length === 0) setSelectedProfile(null);
+            else openProfile(selectedProfile);
         }
     };
 
@@ -1667,7 +1703,7 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
                                             ) : (
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                     {selectedProfile.vehicles.map((v: any, idx) => (
-                                                        <div key={idx} className="bg-muted/10 border border-border/40 p-4 rounded-2xl flex items-center gap-4">
+                                                        <div key={idx} className="bg-muted/10 border border-border/40 p-4 rounded-2xl flex flex-wrap items-center gap-4">
                                                             <div className="w-10 h-10 bg-blue-500/10 text-blue-500 rounded-xl flex items-center justify-center shrink-0">
                                                                 <Car size={20}/>
                                                             </div>
@@ -1704,6 +1740,28 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
                                                                     title="طباعة ملصق الدفتر">
                                                                     <FileText size={14} /> ملصق الدفتر
                                                                 </button>
+                                                            )}
+                                                            {isOwnerOrAdmin && selectedProfile.allReports.some(r => r.vehicle?.id === v.id) && (
+                                                                <div className="basis-full flex">{cid ? (
+                                                                    <button onClick={() => moveVehicle(v, null)} disabled={movingVehicleId === v.id}
+                                                                        className="px-3 py-2 bg-muted hover:bg-muted/70 border border-border rounded-xl text-xs font-bold flex items-center gap-1.5 disabled:opacity-60"
+                                                                        title="إرجاع السيارة وأوراقها إلى سجل العملاء">
+                                                                        {movingVehicleId === v.id ? <Loader2 size={14} className="animate-spin" /> : <ArrowLeftRight size={14} />} إرجاع إلى العملاء
+                                                                    </button>
+                                                                ) : contracts.length === 1 ? (
+                                                                    <button onClick={() => moveVehicle(v, contracts[0])} disabled={movingVehicleId === v.id}
+                                                                        className="px-3 py-2 bg-amber-500/10 hover:bg-amber-500 hover:text-black text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-60"
+                                                                        title="نقل السيارة وكل أوراقها السابقة إلى تبويب العقود">
+                                                                        {movingVehicleId === v.id ? <Loader2 size={14} className="animate-spin" /> : <Landmark size={14} />} نقل إلى عقد {contracts[0].name}
+                                                                    </button>
+                                                                ) : contracts.length > 1 ? (
+                                                                    <select value="" disabled={movingVehicleId === v.id}
+                                                                        onChange={e => { const t = contracts.find(c => c.id === e.target.value); if (t) moveVehicle(v, t); }}
+                                                                        className="px-2 py-2 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold cursor-pointer">
+                                                                        <option value="">نقل إلى عقد…</option>
+                                                                        {contracts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                                                    </select>
+                                                                ) : null}</div>
                                                             )}
                                                         </div>
                                                     ))}
