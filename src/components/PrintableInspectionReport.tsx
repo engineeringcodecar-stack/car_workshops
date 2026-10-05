@@ -409,6 +409,12 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
                             <div>الموديل: <Val v={v.model} w={60} /></div>
                             <div>المحرك: <Val v={v.engine_size} w={50} /></div>
                             <div>الكيلومتر: <Val v={report.odometer_reading} w={50} /></div>
+                            {/* Full row: plates are long (e.g. "ميسان 33108 حكومي"). Same look as <Val>. */}
+                            <div style={{ gridColumn: '1 / -1' }}>رقم اللوحة: <span style={{
+                                display: 'inline-block', borderBottom: '1.5px solid #1a1a2e', minWidth: '140px',
+                                padding: '0 4px', textAlign: 'center', fontWeight: 700, fontSize: '12px',
+                                color: v.plate_number ? '#1a1a2e' : '#888',
+                            }}>{v.plate_number || ''}</span></div>
                         </div>
                     </div>
                 </div>
