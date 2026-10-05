@@ -3,7 +3,9 @@ import type { NextRequest } from "next/server";
 
 // Routes that must remain reachable without an authenticated session.
 // NOTE: `/b/` is the public, customer-facing vehicle booklet (opened via QR code).
-const PUBLIC_PREFIXES = ["/login", "/b/", "/api/"];
+// `/share/` is a contract's private read-only link (token in the URL, data via a
+// security-definer function — see supabase/migrations/20261005_contract_share_link.sql).
+const PUBLIC_PREFIXES = ["/login", "/b/", "/share/", "/api/"];
 
 function isPublicPath(pathname: string): boolean {
     return PUBLIC_PREFIXES.some(

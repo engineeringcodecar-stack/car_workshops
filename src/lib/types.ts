@@ -36,6 +36,7 @@ export interface Database {
           name: string
           notes: string | null
           is_active: boolean
+          share_token: string | null
           created_at: string
         }
         Insert: {
@@ -43,6 +44,7 @@ export interface Database {
           name: string
           notes?: string | null
           is_active?: boolean
+          share_token?: string | null
           created_at?: string
         }
         Update: {
@@ -50,6 +52,7 @@ export interface Database {
           name?: string
           notes?: string | null
           is_active?: boolean
+          share_token?: string | null
           created_at?: string
         }
         Relationships: []
@@ -586,7 +589,10 @@ export interface Database {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_contract_worksheets: {
+        Args: { p_token: string }
+        Returns: Json
+      }
     }
     Enums: {
       user_role: "Owner" | "Admin" | "Supervisor" | "Receptionist"

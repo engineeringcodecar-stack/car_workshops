@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import * as XLSX from "xlsx";
-import { Landmark, Car, FileText, Wallet, Loader2, RefreshCcw, Download, Plus, Trash2, Clock, ShoppingCart, X } from "lucide-react";
+import { Landmark, Car, FileText, Wallet, Loader2, RefreshCcw, Download, Plus, Trash2, Clock, ShoppingCart, X, Link2, Copy } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/AuthProvider";
 import { useContracts, invoiceMoney, type Contract } from "@/lib/contracts";
@@ -112,6 +112,7 @@ function ContractBalance({ contract, contracts, onPick }: { contract: Contract; 
     const [loading, setLoading] = useState(true);
     const [reloadKey, setReloadKey] = useState(0);
     const [showPayments, setShowPayments] = useState(false);
+    const [showShare, setShowShare] = useState(false);
 
     useEffect(() => {
         let alive = true;
@@ -229,6 +230,11 @@ function ContractBalance({ contract, contracts, onPick }: { contract: Contract; 
                 <Link href={`/reception?contract=${contract.id}&sale=1`} className="px-4 py-2 rounded-xl bg-card border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 text-sm font-bold flex items-center gap-2">
                     <ShoppingCart size={15} /> بيع مواد
                 </Link>
+                {isAdmin && (
+                    <button onClick={() => setShowShare(true)} className="px-4 py-2 rounded-xl bg-card border border-border hover:bg-muted text-sm font-bold flex items-center gap-2">
+                        <Link2 size={15} /> رابط مشاهدة للجهة
+                    </button>
+                )}
                 <button onClick={refresh} className="px-3 py-2 rounded-xl bg-card border border-border hover:bg-muted text-sm font-bold flex items-center gap-2" title="تحديث الرصيد">
                     <RefreshCcw size={14} className={loading ? "animate-spin" : ""} /> تحديث
                 </button>
@@ -236,6 +242,7 @@ function ContractBalance({ contract, contracts, onPick }: { contract: Contract; 
                     <span className="text-xs text-indigo-300 flex items-center gap-1"><Clock size={13} /> الفواتير غير المُحاسَبة تُضاف للمستحق عند إغلاقها في <Link href="/audit" className="underline font-bold">التدقيق</Link></span>
                 )}
             </div>
+            {showShare && <ShareLinkModal contract={contract} onClose={() => setShowShare(false)} />}
             {showPayments && (
                 <PaymentsModal contract={contract} payments={payments} total={summary.paid} canDelete={isAdmin}
                     pinnedBranch={scopeBranch} employeeName={employeeName} onClose={() => setShowPayments(false)} onChanged={refresh} />
@@ -350,6 +357,92 @@ function PaymentsModal({ contract, payments, total, canDelete, pinnedBranch, emp
                         )}
                     </div>
                 </div>
+            </div>
+        </div>
+    );
+}
+
+// The contracted body's read-only link (/share/<token>). A long random token, not a
+// login account: any signed-in account can read and write every table, so an
+// outside party only ever gets this link. New / stop takes effect immediately.
+function newToken(): string {
+    const bytes = crypto.getRandomValues(new Uint8Array(24));
+    return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function ShareLinkModal({ contract, onClose }: { contract: Contract; onClose: () => void }) {
+    const [token, setToken] = useState<string | null>(null);
+    const [state, setState] = useState<"loading" | "ready" | "missing">("loading");
+    const [busy, setBusy] = useState(false);
+    const link = token && typeof window !== "undefined" ? `${window.location.origin}/share/${token}` : "";
+
+    useEffect(() => {
+        let alive = true;
+        supabase.from("contracts").select("share_token").eq("id", contract.id).single().then(({ data, error }) => {
+            if (!alive) return;
+            // Column missing = the SQL for this feature hasn't been run on this database yet.
+            if (error) { setState("missing"); return; }
+            setToken(data?.share_token ?? null);
+            setState("ready");
+        });
+        return () => { alive = false; };
+    }, [contract.id]);
+
+    const save = async (next: string | null, done: string) => {
+        setBusy(true);
+        const { error } = await supabase.from("contracts").update({ share_token: next }).eq("id", contract.id);
+        setBusy(false);
+        if (error) { showError("خطأ", error.message); return; }
+        setToken(next);
+        showSuccess("تم", done);
+    };
+    const create = () => save(newToken(), "تم إنشاء رابط المشاهدة.");
+    const regenerate = async () => {
+        const ok = await showConfirm("رابط جديد", "سيتوقف الرابط الحالي فوراً ويُنشأ رابط جديد. أي شخص معه الرابط القديم لن يستطيع الدخول.", "إنشاء رابط جديد", true);
+        if (ok) save(newToken(), "تم إنشاء رابط جديد. أرسله للجهة بدل القديم.");
+    };
+    const stop = async () => {
+        const ok = await showConfirm("إيقاف الرابط", "إيقاف رابط المشاهدة؟ لن يستطيع أحد فتحه بعد الآن.", "إيقاف", true);
+        if (ok) save(null, "تم إيقاف الرابط.");
+    };
+    const copy = async () => {
+        try { await navigator.clipboard.writeText(link); showSuccess("تم النسخ", "الرابط في الحافظة."); }
+        catch { showError("تنبيه", "انسخ الرابط يدوياً."); }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-3" dir="rtl" onClick={onClose}>
+            <div className="bg-background border border-border rounded-3xl w-full max-w-xl p-5 md:p-6 space-y-4" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-bold flex items-center gap-2"><Link2 className="text-amber-400" size={20} /> رابط مشاهدة لعقد {contract.name}</h2>
+                    <button onClick={onClose} className="p-2 rounded-xl bg-muted hover:bg-rose-500 hover:text-white border border-border"><X size={18} /></button>
+                </div>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                    من يفتح هذا الرابط يرى أوراق عمل العقد فقط، للمشاهدة والطباعة. لا يستطيع التعديل أو الإضافة أو البحث، ولا يرى أي عميل أو بيانات أخرى. لا يحتاج اسم مستخدم.
+                </p>
+                {state === "loading" ? (
+                    <div className="flex justify-center py-6"><Loader2 className="animate-spin text-amber-500" /></div>
+                ) : state === "missing" ? (
+                    <div className="text-sm text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-xl p-3">
+                        هذه الميزة تحتاج تشغيل ملف SQL على قاعدة البيانات أولاً (20261005_contract_share_link.sql).
+                    </div>
+                ) : token ? (
+                    <div className="space-y-3">
+                        <div className="flex gap-2">
+                            <input readOnly value={link} dir="ltr" onFocus={e => e.currentTarget.select()} className="input-field text-xs font-mono flex-1" />
+                            <button onClick={copy} className="px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold flex items-center gap-1.5 text-sm"><Copy size={15} /> نسخ</button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            <a href={link} target="_blank" rel="noreferrer" className="px-3 py-2 rounded-xl bg-card border border-border hover:bg-muted text-sm font-bold">فتح الرابط</a>
+                            <button onClick={regenerate} disabled={busy} className="px-3 py-2 rounded-xl bg-card border border-border hover:bg-muted text-sm font-bold disabled:opacity-60">رابط جديد</button>
+                            <button onClick={stop} disabled={busy} className="px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500 hover:text-white text-sm font-bold disabled:opacity-60">إيقاف الرابط</button>
+                        </div>
+                    </div>
+                ) : (
+                    <button onClick={create} disabled={busy} className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold flex items-center justify-center gap-2 disabled:opacity-60">
+                        {busy ? <Loader2 size={16} className="animate-spin" /> : <Link2 size={16} />} إنشاء رابط المشاهدة
+                    </button>
+                )}
             </div>
         </div>
     );

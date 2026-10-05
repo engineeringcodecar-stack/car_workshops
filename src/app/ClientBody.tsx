@@ -32,7 +32,8 @@ export default function ClientBody({
         );
     }
 
-    const isPublicBookletPage = pathname.startsWith("/b/");
+    // Public pages (QR booklet, contract view link): no login, no sidebar, no assistant.
+    const isPublicBookletPage = pathname.startsWith("/b/") || pathname.startsWith("/share/");
     if (isPublicBookletPage) {
         return (
             <LanguageProvider>
