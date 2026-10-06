@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import * as XLSX from "xlsx";
-import { Landmark, Car, FileText, Wallet, Loader2, RefreshCcw, Download, Plus, Trash2, Clock, ShoppingCart, X, Link2, Copy } from "lucide-react";
+import { Landmark, Car, FileText, Wallet, Loader2, RefreshCcw, Download, Plus, Trash2, Clock, ShoppingCart, X, Link2, Copy, Undo2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/AuthProvider";
 import { useContracts, invoiceMoney, type Contract } from "@/lib/contracts";
@@ -113,6 +113,7 @@ function ContractBalance({ contract, contracts, onPick }: { contract: Contract; 
     const [reloadKey, setReloadKey] = useState(0);
     const [showPayments, setShowPayments] = useState(false);
     const [showShare, setShowShare] = useState(false);
+    const [showReceived, setShowReceived] = useState(false);
 
     useEffect(() => {
         let alive = true;
@@ -160,6 +161,11 @@ function ContractBalance({ contract, contracts, onPick }: { contract: Contract; 
         const paid = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
         return { cars: cars.size, due, atClose, paid, received: atClose + paid, remaining: due - atClose - paid, pendingCount, pendingAmount };
     }, [rows, payments]);
+
+    const paidAtClose = useMemo(() => rows.filter(r => {
+        const m = invoiceMoney({ status: r.status, total_price: r.total_price, pricing: r.pricing });
+        return m.state === "closed" && m.received > 0;
+    }), [rows]);
 
     const exportStatement = () => {
         const wb = XLSX.utils.book_new();
@@ -230,6 +236,12 @@ function ContractBalance({ contract, contracts, onPick }: { contract: Contract; 
                 <Link href={`/reception?contract=${contract.id}&sale=1`} className="px-4 py-2 rounded-xl bg-card border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 text-sm font-bold flex items-center gap-2">
                     <ShoppingCart size={15} /> بيع مواد
                 </Link>
+                {isAdmin && paidAtClose.length > 0 && (
+                    <button onClick={() => setShowReceived(true)} className="px-4 py-2 rounded-xl bg-card border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 text-sm font-bold flex items-center gap-2"
+                        title="فواتير مغلقة سُجّل عليها مبلغ واصل">
+                        <Undo2 size={15} /> مراجعة الواصل ({paidAtClose.length})
+                    </button>
+                )}
                 {isAdmin && (
                     <button onClick={() => setShowShare(true)} className="px-4 py-2 rounded-xl bg-card border border-border hover:bg-muted text-sm font-bold flex items-center gap-2">
                         <Link2 size={15} /> رابط مشاهدة للجهة
@@ -243,6 +255,7 @@ function ContractBalance({ contract, contracts, onPick }: { contract: Contract; 
                 )}
             </div>
             {showShare && <ShareLinkModal contract={contract} onClose={() => setShowShare(false)} />}
+            {showReceived && <ReceivedReviewModal contract={contract} rows={paidAtClose} onClose={() => setShowReceived(false)} onChanged={refresh} />}
             {showPayments && (
                 <PaymentsModal contract={contract} payments={payments} total={summary.paid} canDelete={isAdmin}
                     pinnedBranch={scopeBranch} employeeName={employeeName} onClose={() => setShowPayments(false)} onChanged={refresh} />
@@ -442,6 +455,87 @@ function ShareLinkModal({ contract, onClose }: { contract: Contract; onClose: ()
                     <button onClick={create} disabled={busy} className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold flex items-center justify-center gap-2 disabled:opacity-60">
                         {busy ? <Loader2 size={16} className="animate-spin" /> : <Link2 size={16} />} إنشاء رابط المشاهدة
                     </button>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// Closed contract invoices that carry a "received" amount. On a credit contract that
+// usually means a figure slipped in from reception (or an old cash invoice moved onto
+// the contract), so the balance looks paid when it isn't. Turning one to credit sets
+// its received to 0; its total is untouched, so the amount goes back onto the balance.
+function ReceivedReviewModal({ contract, rows, onClose, onChanged }: {
+    contract: Contract; rows: Row[]; onClose: () => void; onChanged: () => void;
+}) {
+    const [busy, setBusy] = useState<string | null>(null);
+    const toCredit = async (r: Row) => {
+        const m = invoiceMoney({ status: r.status, total_price: r.total_price, pricing: r.pricing });
+        const ok = await showConfirm(
+            "تحويل إلى آجل",
+            `الفاتورة #${r.report_number}: تصفير الواصل (${fmtMoney(m.received)} د.ع) وإضافته إلى المتبقي على عقد ${contract.name}؟ مجموع الفاتورة لا يتغير.`,
+            "تحويل إلى آجل",
+            false,
+        );
+        if (!ok) return;
+        setBusy(r.id);
+        // Work on the FRESH payload, never a stale copy, and touch only pricing.amountReceived.
+        const { data, error } = await supabase.from("inspection_reports").select("selected_services").eq("id", r.id).single();
+        if (error || !data) { setBusy(null); showError("خطأ", error?.message || "تعذّر قراءة الفاتورة."); return; }
+        const services = Array.isArray(data.selected_services) ? [...data.selected_services] : [];
+        if (!services[0]) { setBusy(null); showError("خطأ", "بيانات الفاتورة غير مكتملة."); return; }
+        services[0] = { ...services[0], pricing: { ...(services[0].pricing || {}), amountReceived: "0" } };
+        const { error: ue } = await supabase.from("inspection_reports").update({ selected_services: services }).eq("id", r.id);
+        setBusy(null);
+        if (ue) { showError("خطأ", ue.message); return; }
+        showSuccess("تم", `الفاتورة #${r.report_number} صارت آجلة على العقد.`);
+        onChanged();
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-3" dir="rtl" onClick={onClose}>
+            <div className="bg-background border border-border rounded-3xl w-full max-w-3xl max-h-[85vh] overflow-y-auto p-5 md:p-6 space-y-4" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-bold flex items-center gap-2"><Undo2 className="text-amber-400" size={20} /> مراجعة الواصل على عقد {contract.name}</h2>
+                    <button onClick={onClose} className="p-2 rounded-xl bg-muted hover:bg-rose-500 hover:text-white border border-border"><X size={18} /></button>
+                </div>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                    هذه فواتير مغلقة سُجّل عليها مبلغ واصل. إذا لم تستلم المحافظة دفع هذه الفاتورة فعلاً، اضغط «تحويل إلى آجل» فيُصفَّر الواصل ويُضاف المبلغ إلى المتبقي.
+                </p>
+                {rows.length === 0 ? (
+                    <div className="p-6 text-center text-muted-foreground text-sm">لا توجد فواتير عليها واصل.</div>
+                ) : (
+                    <div className="overflow-x-auto rounded-2xl border border-border/50">
+                        <table className="w-full text-sm text-right min-w-[560px]">
+                            <thead className="bg-muted/40 text-muted-foreground text-xs">
+                                <tr><th className="p-3">#</th><th className="p-3">التاريخ</th><th className="p-3">السيارة / السائق</th><th className="p-3">الصافي</th><th className="p-3">الواصل</th><th className="p-3"></th></tr>
+                            </thead>
+                            <tbody>
+                                {rows.map(r => {
+                                    const m = invoiceMoney({ status: r.status, total_price: r.total_price, pricing: r.pricing });
+                                    const v = one(r.vehicles);
+                                    return (
+                                        <tr key={r.id} className="border-t border-border/50">
+                                            <td className="p-3 font-mono font-bold">{r.report_number}</td>
+                                            <td className="p-3">{fmtDate(r.created_at)}</td>
+                                            <td className="p-3">
+                                                <div className="font-bold">{r.order_type === "sale" ? "بيع مواد" : `${v?.make || ""} ${v?.model || ""}`.trim()}{v?.plate_number ? ` · ${v.plate_number}` : ""}</div>
+                                                <div className="text-[11px] text-muted-foreground">{r.order_type === "sale" ? (r.sale_customer || "") : (one(v?.clients)?.name || "")}</div>
+                                            </td>
+                                            <td className="p-3">{fmtMoney(m.net)}</td>
+                                            <td className="p-3 font-bold text-emerald-400">{fmtMoney(m.received)}</td>
+                                            <td className="p-3">
+                                                <button onClick={() => toCredit(r)} disabled={busy === r.id}
+                                                    className="px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500 hover:text-black text-amber-400 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 disabled:opacity-60">
+                                                    {busy === r.id ? <Loader2 size={13} className="animate-spin" /> : <Undo2 size={13} />} تحويل إلى آجل
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
                 )}
             </div>
         </div>

@@ -981,6 +981,19 @@ export default function StandardReception({
             }
 
             const clientId = await resolveClientId();
+            // Editing an order: the customer box edits THAT customer. resolveClientId keeps
+            // the order's existing customer (selectedClientId), so a corrected name or phone
+            // used to be thrown away and the order kept showing the old name.
+            if (editReportId && selectedClientId) {
+                const patch: { name?: string; phone?: string } = {};
+                if (name.trim()) patch.name = name.trim();
+                if (phone.trim()) patch.phone = phone.trim();
+                const { error: ue } = await supabase.from('clients').update(patch).eq('id', selectedClientId);
+                if (ue) {
+                    if (ue.code === '23505') throw new Error('رقم الهاتف هذا مسجّل لعميل آخر. أعد الرقم الأصلي أو اختر العميل الصحيح.');
+                    throw ue;
+                }
+            }
 
             let vehicleId: string | null = null;
             const cleanedPlate = plateNumber ? plateNumber.trim() : "";
@@ -1129,7 +1142,7 @@ export default function StandardReception({
                 shiftSupervisor,
                 technicianName: assignedTechnician,
                 booklet: { type: bookletType, changes: bookletChanges, serial: finalBookletSerial },
-                pricing: { totalPrice, discount, amountReceived, amountOwedByClient: "0", amountOwedToClient: "0" },
+                pricing: { totalPrice, discount, amountReceived: contractId ? "0" : amountReceived, amountOwedByClient: "0", amountOwedToClient: "0" },
                 receptionistName: receptionistNameToSave,
                 futureOdometer: futureOdometer || "",
                 tireSize: parseTireSize(tireSize),
@@ -2095,7 +2108,11 @@ export default function StandardReception({
                                 </div>
                                 <div>
                                     <label className="text-xs text-muted-foreground block mb-1">الواصل (د.ع)</label>
-                                    <input type="text" inputMode="numeric" className="input-field bg-background text-lg" placeholder="0" value={withCommas(amountReceived)} onChange={e => setAmountReceived(digitsOnly(e.target.value))} />
+                                    {contractId ? (
+                                        <div className="input-field bg-background text-sm font-bold text-amber-400 flex items-center">آجل على العقد</div>
+                                    ) : (
+                                        <input type="text" inputMode="numeric" className="input-field bg-background text-lg" placeholder="0" value={withCommas(amountReceived)} onChange={e => setAmountReceived(digitsOnly(e.target.value))} />
+                                    )}
                                 </div>
                             </div>
                         </div>

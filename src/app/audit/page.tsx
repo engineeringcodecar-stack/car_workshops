@@ -279,7 +279,9 @@ export default function AuditPage() {
         // NOTE: do NOT prefill the discount from reception's pricing.discount — total_price is
         // already net of that discount, so prefilling deducted it a second time and the phantom
         // difference showed up as fake ذمم. The accountant enters an extra discount only if any.
-        return inputs[o.id] ?? { discount: "", received: String(p.amountReceived ?? "") };
+        // A contract (آجل) invoice starts at nothing received: reception's figure is not
+        // carried over, or it silently closed as paid (and printed as paid on the sheet).
+        return inputs[o.id] ?? { discount: "", received: o.contract_id ? "" : String(p.amountReceived ?? "") };
     };
     const setInput = (id: string, field: 'discount' | 'received', value: string) =>
         setInputs(prev => ({ ...prev, [id]: { ...(prev[id] ?? { discount: "", received: "" }), [field]: value } }));
