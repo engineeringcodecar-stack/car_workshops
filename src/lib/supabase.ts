@@ -71,3 +71,12 @@ export const supabase = createBrowserClient<Database>(
         },
     }
 );
+
+// Every request waits on the auth lock while the session is being renewed. The library
+// gives up after 5s by default, but on a slow connection a renewal alone can take up to
+// customFetch's 10s, so every request queued behind it failed with "Acquiring process
+// lock ... timed out" (seen at فرع القطاع: the role failed to load and staff got
+// "غير مصرح بالوصول"). Wait up to 20s instead. Set on the instance because supabase-js's
+// typed options don't list it, and passing it there changes the client's inferred types.
+// GoTrueClient reads this field on every call.
+(supabase.auth as unknown as { lockAcquireTimeout: number }).lockAcquireTimeout = 20000;

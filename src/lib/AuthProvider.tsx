@@ -73,13 +73,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const initialized = useRef(false);
     pathnameRef.current = pathname;
 
+    // A slow connection (or a session renewal holding the auth lock) is temporary: retry
+    // it a few times before telling the user anything. Giving up on the first try left
+    // staff with no role at all, i.e. "غير مصرح بالوصول" on every page.
+    const isTransient = (msg: string) => /lock|timed out|timeout|abort|network|fetch|freeze/i.test(msg);
     const fetchRole = async (userId: string): Promise<UserRole | null> => {
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            const result = await fetchRoleOnce(userId, attempt);
+            if (result !== "retry") return result;
+            setDebugMsg(`الاتصال بطيء، إعادة المحاولة (${attempt})...`);
+            await new Promise(r => setTimeout(r, 1500 * attempt));
+        }
+        return await fetchRoleOnce(userId, 4, true) as UserRole | null;
+    };
+
+    const fetchRoleOnce = async (userId: string, attempt: number, last = false): Promise<UserRole | null | "retry"> => {
         try {
             setDebugMsg(`جلب صلاحيات المستخدم: ${userId}`);
             
             // Protect against Supabase indefinite hangs (token refresh deadlock)
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 6000);
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
 
             // (supabase as any): allowed_pages is newer than the generated DB types.
             const { data, error } = await (supabase as any)
@@ -93,7 +107,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             if (error) {
                 const errMsg = `fetchRole error: ${error.message} (${error.code})`;
-                console.error(errMsg);
+                console.error(errMsg, `attempt ${attempt}`);
+                if (!last && isTransient(String(error.message))) return "retry";
                 setDebugError(errMsg);
                 return null;
             }
@@ -140,6 +155,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             return data[0].role as UserRole;
         } catch (e: any) {
+            if (!last && (e.name === 'AbortError' || isTransient(String(e?.message || e)))) return "retry";
             if (e.name === 'AbortError') {
                 const errMsg = "fetchRole timeout: فشل الاتصال بقاعدة البيانات (انتهى وقت الطلب). جرب مسح ملفات تعريف الارتباط أو تحديث الصفحة.";
                 console.error(errMsg);
@@ -306,7 +322,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (loading && !debugError) {
                 setTimedOut(true);
             }
-        }, 12000);
+        }, 25000);
         return () => clearTimeout(timeoutId);
     }, [loading, debugError]);
 
