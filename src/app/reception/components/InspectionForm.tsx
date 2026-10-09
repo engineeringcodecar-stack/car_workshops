@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { normalizeBookletCode } from "@/lib/booklet";
-import { digitsOnly, withCommas } from "@/lib/format";
+import { digitsOnly, withCommas, toLatinDigits } from "@/lib/format";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, ArrowRight, CheckCircle2, Printer } from "lucide-react";
 import { showError } from "@/lib/alerts";
@@ -12,6 +12,10 @@ import ContractBanner from "@/components/ContractBanner";
 import {
     INSPECTION_SECTIONS, INSPECTION_STATUSES, emptyInspection, InspectionStatus,
 } from "@/lib/comprehensiveInspection";
+
+// Same phone normalization as the reception forms: Arabic-Indic digits -> Latin, no
+// spaces or dashes (a leading "+" stays), so lookups and the unique clients.phone agree.
+const normalizePhone = (value: string): string => toLatinDigits(value).replace(/[\s-]/g, "");
 
 // الفحص الشامل — standalone lightweight form (mirrors SaleForm). Reception fills the
 // customer/vehicle info + the checklist, saves as a report tied to a real vehicle_id
@@ -42,6 +46,8 @@ export default function InspectionForm({
     // Link to an EXISTING customer/vehicle (chosen from search) so no duplicate is created.
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+    // Plate of the linked car, so a later plate edit isn't silently filed under it.
+    const [linkedPlate, setLinkedPlate] = useState("");
     const [suggestions, setSuggestions] = useState<any[]>([]);
     const [insp, setInsp] = useState(emptyInspection());
     const [loading, setLoading] = useState(false);
@@ -55,7 +61,7 @@ export default function InspectionForm({
     useEffect(() => {
         if (selectedClientId) return;
         // A scanner types the whole booklet URL — reduce it to the serial first.
-        const q = normalizeBookletCode(phone);
+        const q = normalizeBookletCode(toLatinDigits(phone));
         if (q.length < 3) { setSuggestions([]); return; }
         const t = setTimeout(async () => {
             const sel = "id, name, phone, vehicles(id, make, model, engine_size, plate_number, booklet_serial)";
@@ -63,7 +69,7 @@ export default function InspectionForm({
                 const { data } = await supabase.from("clients").select(sel).eq("vehicles.booklet_serial", q.toUpperCase());
                 setSuggestions((data || []).filter((c: any) => c.vehicles?.some((v: any) => v.booklet_serial?.toUpperCase() === q.toUpperCase())));
             } else {
-                const { data } = await supabase.from("clients").select(sel).ilike("phone", `%${q}%`).limit(6);
+                const { data } = await supabase.from("clients").select(sel).ilike("phone", `%${normalizePhone(q)}%`).limit(6);
                 setSuggestions(data || []);
             }
         }, 400);
@@ -75,11 +81,14 @@ export default function InspectionForm({
         setPhone(c.phone || "");
         setSelectedClientId(c.id);
         setSuggestions([]);
-        const v = c.vehicles?.[0];
+        // A customer may have several cars — prefer the one matching an already-typed plate.
+        const typedPlate = plateNumber.trim();
+        const v = c.vehicles?.find((x: { plate_number?: string | null }) => typedPlate && x.plate_number === typedPlate) || c.vehicles?.[0];
         if (v) {
             setMake(v.make || ""); setModel(v.model || "");
             setEngineSize(v.engine_size || ""); setPlateNumber(v.plate_number || "");
             setSelectedVehicleId(v.id || null);
+            setLinkedPlate(v.plate_number || "");
         }
     };
 
@@ -96,6 +105,7 @@ export default function InspectionForm({
             setMake(data.make || ""); setModel(data.model || "");
             setEngineSize(data.engine_size || ""); setPlateNumber(data.plate_number || "");
             setSelectedVehicleId(data.id);
+            setLinkedPlate(data.plate_number || "");
             const c: any = Array.isArray(data.clients) ? data.clients[0] : data.clients;
             if (c) { setName(c.name || ""); setPhone(c.phone || ""); setSelectedClientId(c.id); }
         })();
@@ -109,12 +119,13 @@ export default function InspectionForm({
     };
 
     const handleSave = async () => {
-        if (!name.trim() && !phone.trim()) { setError("أدخل اسم الزبون أو رقم الهاتف على الأقل."); return; }
+        const phoneClean = normalizePhone(phone);
+        // clients.phone is UNIQUE: a name-only inspection inserted "" and the next one failed.
+        if (!selectedClientId && !phoneClean) { setError("أدخل رقم هاتف الزبون — مطلوب لحفظ الفحص."); return; }
         setLoading(true); setError(null);
         try {
             // ── client: use the one picked from search, else find-or-create by phone ──
             let clientId: string | null = selectedClientId;
-            const phoneClean = phone.trim();
             if (!clientId && phoneClean) {
                 const { data: ec } = await supabase.from("clients").select("id").eq("phone", phoneClean).maybeSingle();
                 clientId = ec?.id ?? null;
@@ -125,12 +136,18 @@ export default function InspectionForm({
                 if (ce) throw ce;
                 clientId = nc.id;
             }
-            // ── vehicle: use the picked one, else find-or-create by plate under the client ──
-            let vehicleId: string | null = selectedVehicleId;
+            // ── vehicle: match the entered plate within THIS customer's cars (another customer
+            // may share the plate, and the picked car may not be the right one of several);
+            // else keep the linked car unless its plate was changed; else create one ──
+            let vehicleId: string | null = null;
             const plateClean = plateNumber.trim();
-            if (!vehicleId && plateClean) {
-                const { data: ev } = await supabase.from("vehicles").select("id").eq("plate_number", plateClean).maybeSingle();
-                vehicleId = ev?.id ?? null;
+            if (plateClean) {
+                const { data: evs } = await supabase.from("vehicles").select("id")
+                    .eq("client_id", clientId).eq("plate_number", plateClean).limit(1);
+                vehicleId = evs?.[0]?.id ?? null;
+            }
+            if (!vehicleId && selectedVehicleId && (!plateClean || !linkedPlate || plateClean === linkedPlate)) {
+                vehicleId = selectedVehicleId;
             }
             if (!vehicleId) {
                 const { data: nv, error: ve } = await supabase.from("vehicles").insert({

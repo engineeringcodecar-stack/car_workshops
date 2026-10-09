@@ -11,7 +11,7 @@ import {
     CheckCircle2, ArrowLeft, ArrowRight, FileText, Printer, Play, X
 } from "lucide-react";
 import { showSuccess } from "@/lib/alerts";
-import { withCommas, withCommasDecimal, digitsOnly, decimalsOnly } from "@/lib/format";
+import { withCommas, withCommasDecimal, digitsOnly, decimalsOnly, toLatinDigits } from "@/lib/format";
 import { PrintableInspectionReport } from "@/components/PrintableInspectionReport";
 import { syncOrderToGoogleSheets } from "@/lib/googleSheetsSync";
 import { useContracts } from "@/lib/contracts";
@@ -156,6 +156,90 @@ function sumMultiProduct(details: Record<string, any>): number {
         }
     }
     return Math.round(sum);
+}
+
+// Net order total: line prices minus the discount (never below 0). extrasTotal is what the
+// workshop floor appended after reception (selected_services[1..]); it was added to
+// total_price on its own, so it sits outside the discount.
+function computeNetTotal(
+    services: Record<string, ServiceEntry>,
+    customServices: { price: string }[],
+    discount: string,
+    extrasTotal = 0
+): string {
+    const sumServices = Object.values(services).reduce((acc, svc) => acc + (parseFloat(svc.price) || 0), 0);
+    const sumCustom = customServices.reduce((acc, svc) => acc + (parseFloat(svc.price) || 0), 0);
+    const netTotal = Math.max(0, sumServices + sumCustom - (parseFloat(discount) || 0));
+    return Math.round(netTotal + extrasTotal).toString();
+}
+
+// Prices of the entries the work-order page appends after selected_services[0]
+// (read the same way the audit page reads them).
+function sumExtraEntries(selected: unknown): number {
+    if (!Array.isArray(selected)) return 0;
+    return selected.slice(1).reduce((acc: number, e: { price?: unknown; is_paper_v2_format?: boolean } | null) =>
+        e && !e.is_paper_v2_format ? acc + (Number(e.price) || 0) : acc, 0);
+}
+
+// Phones are matched/stored as typed digits only: Arabic-Indic -> Latin, no spaces or
+// dashes (a leading "+" stays), so the same number always hits the unique clients.phone.
+const normalizePhone = (value: string): string => toLatinDigits(value).replace(/[\s-]/g, "");
+
+// Estimated minutes per service that needs work (reception's starting estimate).
+const SERVICE_ESTIMATED_MINUTES: Record<string, number> = {
+    engineOil: 30,
+    oilFilter: 20,
+    airFilter: 20,
+    acFilter: 20,
+    brakeFluid: 25,
+    coolant: 30,
+    battery: 20,
+    engineBelts: 30,
+    brakePads: 30,
+    sparkPlugs: 30,
+    gearboxHydraulic: 45,
+    gearboxFilter: 30,
+    wipers: 15,
+    additives: 10,
+    // Sector Branch new service keys mapping
+    engineFlash: 20,
+    engineCeramic: 15,
+    linerCleaner: 15,
+    oilLeakPreventer: 15,
+    smokePreventer: 15,
+    gearboxFlash: 25,
+    gearboxOil: 35,
+    gearboxCeramic: 15,
+    gearboxAntiSlip: 15,
+    acCleaner: 20,
+    injectorCleaner: 20,
+    fuelSystemCleaner: 20,
+    octaneBooster: 10,
+    batteryFilter: 15,
+    windshieldFluid: 10,
+};
+
+// Module-level so an edit can compare against the estimate the loaded order implies.
+function estimateMinutes(
+    services: Record<string, { status?: string } | null>,
+    freeServices: Record<string, boolean>,
+    customServices: unknown[]
+): number {
+    let calculatedDuration = 0;
+    Object.entries(services).forEach(([key, val]) => {
+        if (val && val.status === 'يحتاج تغيير') {
+            calculatedDuration += SERVICE_ESTIMATED_MINUTES[key] || 30;
+        }
+    });
+    Object.values(freeServices).forEach(val => {
+        if (val) {
+            calculatedDuration += 10;
+        }
+    });
+    if (Array.isArray(customServices)) {
+        calculatedDuration += customServices.length * 30;
+    }
+    return calculatedDuration || 30; // fallback minimum
 }
 
 const SECTOR_BRANCH_SERVICES = [
@@ -315,6 +399,11 @@ export default function StandardReception({
     const router = useRouter();
     const editId = searchParams.get('edit');
     const [editReportId, setEditReportId] = useState<string | null>(null);
+    // Edit-only: the order's own car (a corrected plate updates it instead of adding a car),
+    // the floor-added extras' total, and the duration estimate the loaded services imply.
+    const [editVehicleId, setEditVehicleId] = useState<string | null>(null);
+    const [extrasTotal, setExtrasTotal] = useState(0);
+    const [loadedEstimate, setLoadedEstimate] = useState<number | null>(null);
 
     // Wizard step
     const [step, setStep] = useState<Step>(1);
@@ -541,7 +630,7 @@ export default function StandardReception({
                 .from("inspection_reports")
                 .select(`
                     id, report_number, status, created_at, completed_at, odometer_reading,
-                    estimated_duration, elapsed_time, start_time, selected_services, notes, branch_id,
+                    estimated_duration, elapsed_time, start_time, selected_services, notes, branch_id, total_price, bay_number,
                     branches(id, name),
                     vehicles (make, model, plate_number, engine_size, clients (name, phone)),
                     receptionist:receptionist_id(name)
@@ -599,6 +688,7 @@ export default function StandardReception({
                     setMake(vehicle.make || ""); setModel(vehicle.model || "");
                     setEngineSize(vehicle.engine_size || ""); setPlateNumber(vehicle.plate_number || "");
                     setBookletSerial(vehicle.booklet_serial || "");
+                    setEditVehicleId(vehicle.id);
                 }
                 setOdometer(data.odometer_reading?.toString() || "");
                 setOdometerUnit((data as { odometer_unit?: string }).odometer_unit === 'mi' ? 'mi' : 'km');
@@ -613,6 +703,9 @@ export default function StandardReception({
                 }
                 
                 const payload = Array.isArray(data.selected_services) ? data.selected_services[0] : data.selected_services;
+                setExtrasTotal(sumExtraEntries(data.selected_services));
+                // Same inputs the form state gets below, so an unchanged edit compares equal.
+                setLoadedEstimate(estimateMinutes(payload?.services || {}, payload?.freeServices || {}, payload?.customServices || []));
                 if (payload) {
                     setFutureOdometer(payload.futureOdometer || "");
                     setDriverRoute(payload.driverRoute || "");
@@ -681,15 +774,8 @@ export default function StandardReception({
 
     // Real-time calculation of total price, discount, and owed amounts
     useEffect(() => {
-        const sumServices = Object.values(services).reduce((acc, svc) => acc + (parseFloat(svc.price) || 0), 0);
-        const sumCustom = customServices.reduce((acc, svc) => acc + (parseFloat(svc.price) || 0), 0);
-        const subtotal = sumServices + sumCustom;
-        
-        const discVal = parseFloat(discount) || 0;
-        const netTotal = Math.max(0, subtotal - discVal);
-        
-        setTotalPrice(Math.round(netTotal).toString());
-    }, [services, customServices, discount]);
+        setTotalPrice(computeNetTotal(services, customServices, discount, extrasTotal));
+    }, [services, customServices, discount, extrasTotal]);
 
     // Custom services helpers
     const addCustomService = () => {
@@ -735,7 +821,7 @@ export default function StandardReception({
         const searchClient = async () => {
             setIsSearchingClient(true);
             // A scanner types the whole booklet URL — reduce it to the serial first.
-            const trimmed = normalizeBookletCode(phone);
+            const trimmed = normalizeBookletCode(toLatinDigits(phone));
             if (trimmed.toUpperCase().startsWith("BK")) {
                 // Query by booklet serial number
                 const { data } = await supabase
@@ -750,7 +836,7 @@ export default function StandardReception({
                 const { data } = await supabase
                     .from('clients')
                     .select('id, name, phone, vehicles(make, model, engine_size, plate_number, booklet_serial)')
-                    .ilike('phone', `%${phone}%`)
+                    .ilike('phone', `%${normalizePhone(phone)}%`)
                     .limit(5);
                 setClientSuggestions(data || []);
             }
@@ -775,6 +861,9 @@ export default function StandardReception({
 
     const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setPhone(e.target.value);
+        // Editing an order corrects THIS customer's number (the save patches the client
+        // row). Dropping the selection made the save create a new client and vehicle.
+        if (editReportId) return;
         if (selectedClientId) {
             setSelectedClientId(null);
             setName(""); setMake(""); setModel(""); setPlateNumber(""); setBookletSerial("");
@@ -906,12 +995,10 @@ export default function StandardReception({
         setServices(prev => ({ ...prev, [key]: { ...prev[key], price: value } }));
     };
 
-    // Auto-calculate total from service prices (kept for manual trigger if needed)
+    // Same net figure as the live effect — this used to skip the discount, so moving
+    // between steps saved the pre-discount sum.
     const calcTotal = () => {
-        const sumServices = Object.values(services).reduce((acc, svc) => acc + (parseFloat(svc.price) || 0), 0);
-        const sumCustom = customServices.reduce((acc, svc) => acc + (parseFloat(svc.price) || 0), 0);
-        const sum = sumServices + sumCustom;
-        if (sum > 0) setTotalPrice(Math.round(sum).toString());
+        setTotalPrice(computeNetTotal(services, customServices, discount, extrasTotal));
     };
 
     const handleNextStep1 = () => {
@@ -948,7 +1035,7 @@ export default function StandardReception({
     const resolveClientId = async (): Promise<string> => {
         if (selectedClientId) return selectedClientId;
 
-        const cleanPhone = phone.trim();
+        const cleanPhone = normalizePhone(phone);
         const cleanName = name.trim();
 
         const { data: existing } = await supabase
@@ -987,7 +1074,7 @@ export default function StandardReception({
             if (editReportId && selectedClientId) {
                 const patch: { name?: string; phone?: string } = {};
                 if (name.trim()) patch.name = name.trim();
-                if (phone.trim()) patch.phone = phone.trim();
+                if (normalizePhone(phone)) patch.phone = normalizePhone(phone);
                 const { error: ue } = await supabase.from('clients').update(patch).eq('id', selectedClientId);
                 if (ue) {
                     if (ue.code === '23505') throw new Error('رقم الهاتف هذا مسجّل لعميل آخر. أعد الرقم الأصلي أو اختر العميل الصحيح.');
@@ -1019,6 +1106,9 @@ export default function StandardReception({
                     .limit(1);
                 if (evs && evs.length > 0) vehicleId = evs[0].id;
             }
+            // Editing: a corrected plate/make/model fixes THIS order's car. With no other car
+            // of the client matching, update the loaded vehicle instead of inserting a duplicate.
+            if (!vehicleId && editReportId && editVehicleId) vehicleId = editVehicleId;
 
             let finalBookletSerial = bookletSerial ? bookletSerial.trim() : "";
             if (bookletType === 'جديد' && !finalBookletSerial) {
@@ -1041,16 +1131,21 @@ export default function StandardReception({
             }
 
             if (vehicleId) {
-                await supabase.from('vehicles')
-                    .update({ 
-                        client_id: clientId, 
-                        make: cleanedMake, 
-                        model: cleanedModel, 
+                const { error: vue } = await supabase.from('vehicles')
+                    .update({
+                        client_id: clientId,
+                        make: cleanedMake,
+                        model: cleanedModel,
                         engine_size: cleanedEngine,
                         plate_number: cleanedPlate || null,
                         booklet_serial: finalBookletSerial || null
                     })
                     .eq('id', vehicleId);
+                if (vue) {
+                    // booklet_serial is UNIQUE — this used to be ignored and the order saved anyway.
+                    if (vue.code === '23505') throw new Error('رقم دفتر الخدمة هذا مسجّل لسيارة أخرى. صحّح رقم الدفتر أو اتركه فارغاً.');
+                    throw vue;
+                }
             } else {
                 // New car for this client. booklet_serial is globally UNIQUE, so never
                 // reuse a serial that already belongs to another vehicle (e.g. the old
@@ -1080,58 +1175,7 @@ export default function StandardReception({
 
             const receptionistNameToSave = receptionistName.trim();
 
-            // Calculate estimated duration in minutes
-            const SERVICE_ESTIMATED_MINUTES: Record<string, number> = {
-                engineOil: 30,
-                oilFilter: 20,
-                airFilter: 20,
-                acFilter: 20,
-                brakeFluid: 25,
-                coolant: 30,
-                battery: 20,
-                engineBelts: 30,
-                brakePads: 30,
-                sparkPlugs: 30,
-                gearboxHydraulic: 45,
-                gearboxFilter: 30,
-                wipers: 15,
-                additives: 10,
-                // Sector Branch new service keys mapping
-                engineFlash: 20,
-                engineCeramic: 15,
-                linerCleaner: 15,
-                oilLeakPreventer: 15,
-                smokePreventer: 15,
-                gearboxFlash: 25,
-                gearboxOil: 35,
-                gearboxCeramic: 15,
-                gearboxAntiSlip: 15,
-                acCleaner: 20,
-                injectorCleaner: 20,
-                fuelSystemCleaner: 20,
-                octaneBooster: 10,
-                batteryFilter: 15,
-                windshieldFluid: 10,
-            };
-
-            let calculatedDuration = 0;
-            Object.entries(services).forEach(([key, val]: [string, any]) => {
-                if (val && val.status === 'يحتاج تغيير') {
-                    calculatedDuration += SERVICE_ESTIMATED_MINUTES[key] || 30;
-                }
-            });
-            Object.entries(freeServices).forEach(([key, val]) => {
-                if (val) {
-                    calculatedDuration += 10;
-                }
-            });
-            if (Array.isArray(customServices)) {
-                calculatedDuration += customServices.length * 30;
-            }
-
-            if (calculatedDuration === 0) {
-                calculatedDuration = 30; // fallback minimum
-            }
+            const calculatedDuration = estimateMinutes(services, freeServices, customServices);
 
             const paperPayload = {
                 is_paper_v2_format: true,
@@ -1157,7 +1201,7 @@ export default function StandardReception({
                 // page) and the accounting state (pricing.accounted/accountedAt/grandTotal/
                 // auditExcluded from the audit page). Replacing wholesale wiped them.
                 const { data: freshRow } = await supabase.from('inspection_reports')
-                    .select('selected_services').eq('id', editReportId).single();
+                    .select('selected_services, estimated_duration').eq('id', editReportId).single();
                 const existing = (Array.isArray(freshRow?.selected_services) ? freshRow!.selected_services[0] : freshRow?.selected_services) || {};
                 // A CLOSED invoice's money is frozen. Editing an accounted order used to
                 // rewrite total_price (back to reception's pre-discount figure) and stomp
@@ -1183,10 +1227,14 @@ export default function StandardReception({
                     contract_id: contractId || null,
                     notes, bay_number: bayNumber,
                     selected_services: [mergedPayload, ...extraEntries],
-                    estimated_duration: calculatedDuration,
                 };
+                // estimated_duration is the supervisor's once the car is on the floor (and grows
+                // with services added there). Only shift it by what this edit changed.
+                const durationDelta = loadedEstimate === null ? 0 : calculatedDuration - loadedEstimate;
+                if (durationDelta !== 0) editUpdate.estimated_duration = Math.max(1, (freshRow?.estimated_duration || 0) + durationDelta);
                 // total_price on a closed invoice is the accountant's NET — leave it alone.
-                if (!isClosedInvoice) editUpdate.total_price = parseFloat(totalPrice || "0");
+                // Otherwise keep the services the floor appended (selected_services[1..]) in it.
+                if (!isClosedInvoice) editUpdate.total_price = parseFloat(computeNetTotal(services, customServices, discount, sumExtraEntries(freshRow?.selected_services)));
 
                 const { error: re } = await supabase.from('inspection_reports')
                     .update(editUpdate)
@@ -1261,8 +1309,10 @@ export default function StandardReception({
         setReceptionistName(employees.find(e => e.id === employeeId)?.name || ""); setSelectedTechnicianId(""); setAssignedTechnician("");
         setTotalPrice(""); setDiscount(""); setAmountReceived("");
         setCreatedWorkOrderId(null); setReportNumber(null); setSelectedClientId(null); setEditReportId(null);
+        setEditVehicleId(null); setExtrasTotal(0); setLoadedEstimate(null);
         setStep(1);
-        router.replace('/reception'); // clear edit param
+        // Clear the edit param but stay in the contract, like SaleForm's "new sale".
+        router.replace(contractFromUrl ? `/reception?contract=${contractFromUrl}` : '/reception');
     };
 
     // ===================== JSX =====================

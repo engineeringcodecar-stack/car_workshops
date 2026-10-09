@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import { reopenWorkOrder } from "@/lib/reopenOrder";
+import { toLatinDigits } from "@/lib/format";
 import {
     UserPlus, Car, Loader2,
     FileText, Printer, Edit2, X, Trash2, ShoppingCart, RefreshCcw, ClipboardList
@@ -355,13 +356,15 @@ function ReceptionContainer() {
             const token = ++searchToken.current;
             const branchId = listBranchId;
             const applyBranch = (q: any) => branchId ? q.eq('branch_id', branchId) : q;
-            const digits = term.replace(/\D/g, "");
+            // Arabic-Indic digits (٠-٩) aren't matched by \d — convert before the number/phone checks.
+            const latinTerm = toLatinDigits(term);
+            const digits = latinTerm.replace(/\D/g, "");
             const like = `%${term}%`;
             const runs: Promise<any[]>[] = [];
             // 1) exact order number — the main case
-            if (/^\d+$/.test(term)) {
+            if (/^\d+$/.test(latinTerm)) {
                 runs.push(applyBranch(
-                    supabase.from('inspection_reports').select(ORDER_SELECT).eq('report_number', parseInt(term, 10)).limit(50)
+                    supabase.from('inspection_reports').select(ORDER_SELECT).eq('report_number', parseInt(latinTerm, 10)).limit(50)
                 ).then((r: any) => r.data || []).catch(() => []));
             }
             // 2) customer name / phone
@@ -400,7 +403,7 @@ function ReceptionContainer() {
                 .from("inspection_reports")
                 .select(`
                     id, report_number, status, created_at, completed_at, odometer_reading,
-                    estimated_duration, elapsed_time, start_time, selected_services, notes, branch_id,
+                    estimated_duration, elapsed_time, start_time, selected_services, notes, branch_id, total_price, bay_number,
                     branches(id, name),
                     vehicles (make, model, plate_number, engine_size, booklet_serial, clients (name, phone)),
                     receptionist:receptionist_id(name)

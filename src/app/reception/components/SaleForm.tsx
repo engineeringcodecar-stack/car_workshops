@@ -83,8 +83,9 @@ export default function SaleForm({
         })();
     }, [editId, setSelectedBranchId]);
 
+    // Only rows with a name are saved as products, so only they may count toward the total.
     const total = useMemo(
-        () => products.reduce((s, p) => s + (parseFloat(p.qty) || 0) * (parseFloat(p.price) || 0), 0),
+        () => products.filter((p) => p.name.trim()).reduce((s, p) => s + (parseFloat(p.qty) || 0) * (parseFloat(p.price) || 0), 0),
         [products]
     );
     // A sale is settled on the spot, so the net (after discount) is both what the
