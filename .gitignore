@@ -55,3 +55,8 @@ scratch/
 scratch_*
 *.xlsx
 *.xls
+
+# local editor / assistant config
+.claude/
+CLAUDE.md
+AGENTS.md
