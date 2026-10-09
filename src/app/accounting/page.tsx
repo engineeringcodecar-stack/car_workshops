@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { Wallet, TrendingUp, TrendingDown, Activity, Calendar, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { useAuth } from "@/lib/AuthProvider";
+import { Wallet, TrendingUp, TrendingDown, Activity, Calendar, ArrowUpRight, ArrowDownRight, Lock } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -25,6 +26,9 @@ type Transaction = {
 };
 
 export default function AccountingPage() {
+    // Same rule as the sidebar entry: Owner/Admin only.
+    const { employeeRole, loading: authLoading } = useAuth();
+    const isAdmin = employeeRole === "Owner" || employeeRole === "Admin";
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -38,8 +42,9 @@ export default function AccountingPage() {
     const [chartData, setChartData] = useState<any[]>([]);
 
     useEffect(() => {
+        if (authLoading || !isAdmin) return;
         fetchAccountingData();
-    }, []);
+    }, [authLoading, isAdmin]);
 
     const fetchAccountingData = async () => {
         setLoading(true);
@@ -127,6 +132,22 @@ export default function AccountingPage() {
     };
 
     const formatCur = (val: number) => new Intl.NumberFormat('en-US').format(val || 0);
+
+    if (authLoading) {
+        return <div className="min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" /></div>;
+    }
+
+    if (!isAdmin) {
+        return (
+            <div className="min-h-screen flex items-center justify-center p-6 font-ibm" dir="rtl">
+                <div className="glass-card p-10 rounded-3xl border-border text-center max-w-md">
+                    <Lock size={40} className="text-rose-500 mx-auto mb-4" />
+                    <h2 className="text-xl font-bold text-foreground mb-2">غير مصرح</h2>
+                    <p className="text-muted-foreground">النظام المحاسبي متاح فقط للمالك ومدير النظام.</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen p-4 md:p-8 font-ibm" dir="rtl">

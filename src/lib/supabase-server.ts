@@ -63,7 +63,10 @@ export type UserManagerGuardResult =
           supabaseAdmin: SupabaseClient<Database>;
           userId: string;
           role: UserRole;
-          /** Owner/Admin. Only they may hand out (or touch) Owner/Admin accounts. */
+          /**
+           * Owner/Admin. Only they may hand out (or touch) Owner/Admin accounts.
+           * Owner accounts and the Owner role stay Owner-only: check `role` for those.
+           */
           isAdmin: boolean;
       }
     | { ok: false; error: string };

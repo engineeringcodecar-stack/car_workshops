@@ -5,7 +5,7 @@ import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { Settings, Users, Building2, MapPin, Save, MessageCircle, Plus, Loader2, X, AlertCircle } from "lucide-react";
 import { useAuth } from "@/lib/AuthProvider";
 import { supabase } from "@/lib/supabase";
-import { createEmployeeAccount, updateEmployeeAccount, deleteEmployeeAccount } from "@/app/actions/admin";
+import { createEmployeeAccount, updateEmployeeAccount, deleteEmployeeAccount, saveGoogleSheetsSettings } from "@/app/actions/admin";
 import { UserRole } from "@/lib/types";
 import { showConfirm, showError, showSuccess } from "@/lib/alerts";
 import { APP_PAGES, legacyAllowedPages, DEFAULT_NEW_EMPLOYEE_PAGES } from "@/lib/pages";
@@ -93,25 +93,22 @@ export default function SettingsPage() {
         // Wait for auth to settle, then either fetch or show the unauthorized
         // panel — an auth user with no employees row must not spin forever.
         if (authLoading) return;
-        if (employeeRole === "Owner" || permissionEmployees) {
+        if (isAdmin || permissionEmployees) {
             fetchAllData();
         } else {
             setLoadingEnv(false);
         }
-    }, [authLoading, employeeRole, permissionEmployees]);
+    }, [authLoading, isAdmin, permissionEmployees]);
 
     const handleSaveGoogleSettings = async () => {
         setIsSavingGoogle(true);
         try {
-            // Upsert both settings in one round-trip
-            const { error } = await supabase
-                .from('workshop_settings')
-                .upsert([
-                    { setting_key: 'google_sheets_webhook_url', setting_value: webhookUrl },
-                    { setting_key: 'google_sheets_sync_enabled', setting_value: String(syncEnabled) }
-                ], { onConflict: 'setting_key' });
-
-            if (error) throw error;
+            // Saved on the server, which checks the caller is Owner/Admin.
+            const res = await saveGoogleSheetsSettings(webhookUrl, syncEnabled);
+            if (!res.success) {
+                showError("خطأ", res.error || "فشل حفظ إعدادات Google Sheets");
+                return;
+            }
             showSuccess("تم الحفظ", "تم حفظ إعدادات مزامنة Google Sheets بنجاح!");
         } catch (err: any) {
             console.error(err);
@@ -343,7 +340,7 @@ export default function SettingsPage() {
         return <div className="p-20 flex justify-center"><Loader2 className="animate-spin text-rose-500 w-10 h-10" /></div>;
     }
 
-    if (employeeRole !== "Owner" && !permissionEmployees) {
+    if (!isAdmin && !permissionEmployees) {
         return (
             <div className="p-8 flex items-center justify-center min-h-[50vh] animate-fade-in" dir="rtl">
                 <div className="glass-card p-8 rounded-2xl border-border text-center max-w-md w-full relative overflow-hidden">
@@ -439,8 +436,9 @@ export default function SettingsPage() {
                         </div>
                         <button 
                             onClick={handleSaveGoogleSettings}
-                            disabled={isSavingGoogle}
-                            className="w-full py-2.5 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 transition flex items-center justify-center gap-2 font-bold font-ibm"
+                            disabled={isSavingGoogle || !isAdmin}
+                            title={isAdmin ? undefined : "متاح للمالك أو مدير النظام فقط"}
+                            className="w-full py-2.5 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 transition flex items-center justify-center gap-2 font-bold font-ibm disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {isSavingGoogle ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
                             حفظ إعدادات المزامنة

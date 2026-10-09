@@ -100,29 +100,34 @@ export const useNotifications = () => useContext(NotificationContext);
 export default function GlobalRealtimeProvider({ children }: { children: React.ReactNode }) {
     const { user, employeeBranchId, employeeRole } = useAuth();
     const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-    const [isLoaded, setIsLoaded] = useState(false);
+    // Stored per user, so on a shared PC the next person never sees someone else's list.
+    const storageKey = user ? `global_notifications:${user.id}` : null;
+    const [loadedKey, setLoadedKey] = useState<string | null>(null);
 
-    // Load from localStorage on mount
+    // Load from localStorage whenever the signed-in user changes
     useEffect(() => {
+        let next: NotificationItem[] = [];
         try {
-            const saved = localStorage.getItem('global_notifications');
+            localStorage.removeItem('global_notifications'); // old shared key
+            const saved = storageKey ? localStorage.getItem(storageKey) : null;
             if (saved) {
                 const parsed = JSON.parse(saved);
                 // Convert string dates back to Date objects
-                setNotifications(parsed.map((n: any) => ({ ...n, time: new Date(n.time) })));
+                next = parsed.map((n: any) => ({ ...n, time: new Date(n.time) }));
             }
         } catch (e) {
             console.error('Failed to parse notifications from local storage', e);
         }
-        setIsLoaded(true);
-    }, []);
+        setNotifications(next);
+        setLoadedKey(storageKey);
+    }, [storageKey]);
 
-    // Save to localStorage when updated
+    // Save to localStorage when updated (only once this user's list is loaded)
     useEffect(() => {
-        if (isLoaded) {
-            localStorage.setItem('global_notifications', JSON.stringify(notifications));
+        if (storageKey && loadedKey === storageKey) {
+            try { localStorage.setItem(storageKey, JSON.stringify(notifications)); } catch {}
         }
-    }, [notifications, isLoaded]);
+    }, [notifications, storageKey, loadedKey]);
 
     const addNotification = (notif: Omit<NotificationItem, 'id' | 'time' | 'read'>) => {
         setNotifications(prev => [{

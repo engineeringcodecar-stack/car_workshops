@@ -30,6 +30,26 @@ interface AuthContextType {
 /** A branch id is only usable if it is a real uuid — see the localStorage read below. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** The chosen branch is remembered per user, so a shared PC doesn't hand it to the next person. */
+const branchStorageKey = (userId: string) => `activeBranchId:${userId}`;
+
+/**
+ * Drop only the Supabase session keys. A full localStorage.clear() also wiped
+ * app data such as the pending Google Sheets sync queue (gs_sync_retry_queue).
+ */
+function clearSupabaseAuthStorage() {
+    try {
+        const keys: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && ((k.startsWith("sb-") && k.includes("auth-token")) || k.startsWith("supabase.auth.token"))) {
+                keys.push(k);
+            }
+        }
+        keys.forEach(k => localStorage.removeItem(k));
+    } catch {}
+}
+
 const AuthContext = createContext<AuthContextType>({
     user: null,
     session: null,
@@ -71,6 +91,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
     const pathnameRef = useRef(pathname);
     const initialized = useRef(false);
+    // Per-user storage key for the chosen branch; set once the user's role is loaded.
+    const branchKeyRef = useRef<string | null>(null);
     pathnameRef.current = pathname;
 
     // A slow connection (or a session renewal holding the auth lock) is temporary: retry
@@ -126,6 +148,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // keep the branch they last chose (persisted) so re-auth/navigation never silently
             // flips it — this was the source of the "I switch branch then find another selected" glitch.
             let branchToUse: string | null = data[0].branch_id;
+            branchKeyRef.current = branchStorageKey(userId);
+            try { localStorage.removeItem("activeBranchId"); } catch {} // old shared key
             if (!branchToUse) {
                 try {
                     // Anything that isn't a real uuid means "no branch". An older build
@@ -133,11 +157,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     // string is truthy every branch-filtered query then sent
                     // branch_id="null", which Postgres rejects with
                     // `invalid input syntax for type uuid: "null"`.
-                    const stored = localStorage.getItem("activeBranchId");
+                    const stored = localStorage.getItem(branchKeyRef.current);
                     if (stored && UUID_RE.test(stored)) {
                         branchToUse = stored;
                     } else if (stored) {
-                        localStorage.removeItem("activeBranchId");
+                        localStorage.removeItem(branchKeyRef.current);
                     }
                 } catch {}
             }
@@ -203,7 +227,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             try {
                                 await supabase.auth.signOut({ scope: 'local' });
                             } catch {}
-                            localStorage.clear();
+                            clearSupabaseAuthStorage();
                             sessionStorage.clear();
                             if (typeof document !== "undefined") {
                                 document.cookie.split(";").forEach(c => {
@@ -275,6 +299,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     setPermissionReports(null);
                     setPermissionEmployees(null);
                     setAllowedPages(null);
+                    branchKeyRef.current = null;
                     setLoading(false);
                     redirect(null);
                 }
@@ -338,9 +363,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // never be persisted and later used as a uuid.
         const safeId = id && UUID_RE.test(id) ? id : null;
         setEmployeeBranchId(safeId);
+        const key = branchKeyRef.current;
+        if (!key) return;
         try {
-            if (safeId) localStorage.setItem("activeBranchId", safeId);
-            else localStorage.removeItem("activeBranchId");
+            if (safeId) localStorage.setItem(key, safeId);
+            else localStorage.removeItem(key);
         } catch {}
     }, []);
 
@@ -348,7 +375,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
             // Force clear corrupted state that causes hangs after tab minimize
             await supabase.auth.signOut({ scope: 'local' });
-            localStorage.clear();
+            clearSupabaseAuthStorage();
             sessionStorage.clear();
             if (typeof document !== "undefined") {
                 document.cookie.split(";").forEach(c => {
