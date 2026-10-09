@@ -16,6 +16,15 @@ import InspectionChecklist from "@/components/InspectionChecklist";
 import { emptyInspection } from "@/lib/comprehensiveInspection";
 import { showSuccess, showError } from "@/lib/alerts";
 import { syncOrderToGoogleSheets } from "@/lib/googleSheetsSync";
+import { digitsOnly, decimalsOnly, withCommas } from "@/lib/format";
+
+// Line total for the floor's add-service form: unit price × qty, rounded like reception.
+// Inputs may hold "15,000" or Arabic-Indic digits, so normalise before parsing.
+function floorLineTotal(unitPrice: string, qty: string): number {
+    const unit = parseFloat(digitsOnly(unitPrice || "")) || 0;
+    const q = parseFloat(decimalsOnly(qty || "")) || 1;
+    return Math.round(unit * q);
+}
 
 // Format a duration in seconds as H:MM:SS (or MM:SS when under an hour).
 function fmtHMS(totalSeconds: number): string {
@@ -293,7 +302,8 @@ export default function WorkOrderDetailPage() {
             .single();
 
         if (data) {
-            if (employeeBranchId && employeeRole !== 'Owner' && data.branch_id && data.branch_id !== employeeBranchId) {
+            // Owner and Admin can view every branch (the list page offers them كل الفروع).
+            if (employeeBranchId && employeeRole !== 'Owner' && employeeRole !== 'Admin' && data.branch_id && data.branch_id !== employeeBranchId) {
                 setUnauthorized(true);
                 setLoading(false);
                 return;
@@ -577,16 +587,17 @@ export default function WorkOrderDetailPage() {
             let svcDetails: any = {};
 
             if (svcKey === 'wipers') {
+                // Same shape reception saves (prod_N / qty_N / price_N / notes_prod_N) so the
+                // print, booklet and reception edit form all read the wipers back.
                 const wipersDetails: any = {};
                 wipersList.forEach((w, idx) => {
-                    const suf = idx === 0 ? "1" : `extra_${Date.now()}_${idx}`;
-                    wipersDetails[`type_${suf}`] = w.type;
-                    wipersDetails[`size_${suf}`] = w.size;
-                    wipersDetails[`qty_${suf}`] = w.qty;
-                    wipersDetails[`price_${suf}`] = w.price;
-                    wipersDetails[`notes_${suf}`] = w.notes;
+                    const suf = String(idx + 1);
+                    wipersDetails[`prod_${suf}`] = [w.type, w.size].filter(Boolean).join(" ");
+                    wipersDetails[`qty_${suf}`] = decimalsOnly(w.qty);
+                    wipersDetails[`price_${suf}`] = digitsOnly(w.price);
+                    wipersDetails[`notes_prod_${suf}`] = w.notes;
                 });
-                const totalWipersPrice = wipersList.reduce((sum, w) => sum + (parseFloat(w.price) || 0) * (parseFloat(w.qty) || 1), 0);
+                const totalWipersPrice = wipersList.reduce((sum, w) => sum + floorLineTotal(w.price, w.qty), 0);
                 svcPriceVal = String(totalWipersPrice);
                 svcDetails = wipersDetails;
                 priceToAdd = totalWipersPrice;
@@ -596,11 +607,11 @@ export default function WorkOrderDetailPage() {
                 additivesList.forEach((a, idx) => {
                     const suf = idx === 0 ? "1" : `extra_${Date.now()}_${idx}`;
                     additivesDetails[`prod_${suf}`] = a.name;
-                    additivesDetails[`qty_${suf}`] = a.qty;
-                    additivesDetails[`price_${suf}`] = a.price;
+                    additivesDetails[`qty_${suf}`] = decimalsOnly(a.qty);
+                    additivesDetails[`price_${suf}`] = digitsOnly(a.price);
                     additivesDetails[`notes_prod_${suf}`] = a.notes;
                 });
-                const totalAdditivesPrice = additivesList.reduce((sum, a) => sum + (parseFloat(a.price) || 0) * (parseFloat(a.qty) || 1), 0);
+                const totalAdditivesPrice = additivesList.reduce((sum, a) => sum + floorLineTotal(a.price, a.qty), 0);
                 svcPriceVal = String(totalAdditivesPrice);
                 svcDetails = additivesDetails;
                 priceToAdd = totalAdditivesPrice;
@@ -609,21 +620,24 @@ export default function WorkOrderDetailPage() {
                 svcDetails = {
                     brand: svcBrand || undefined,
                     viscosity: svcViscosity || undefined,
-                    liters: svcLiters || undefined,
+                    liters: decimalsOnly(svcLiters) || undefined,
                     type: svcType || undefined,
                     filterNum: svcFilterNum || undefined,
                     num: svcNum || undefined,
-                    qty: svcQty || undefined,
+                    qty: decimalsOnly(svcQty) || undefined,
                     size: svcSize || undefined,
+                    unitPrice: digitsOnly(svcPrice) || undefined,
                     notes: svcNotes || undefined
                 };
                 Object.keys(svcDetails).forEach(k => svcDetails[k] === undefined && delete svcDetails[k]);
-                svcPriceVal = svcPrice || "0";
 
+                // The line's `price` is the line TOTAL (unit × qty), the same as reception —
+                // storing the unit price left the line and total_price disagreeing.
                 // engineOil has a liters field instead of a qty field; svcQty defaults to "1"
                 // (truthy), so without this the liters count never multiplied the unit price.
-                const qVal = parseFloat((svcKey === 'engineOil' ? svcLiters : svcQty) || "1") || 1;
-                priceToAdd = (parseFloat(svcPriceVal) || 0) * qVal;
+                const lineTotal = floorLineTotal(svcPrice, svcKey === 'engineOil' ? svcLiters : svcQty);
+                svcPriceVal = String(lineTotal);
+                priceToAdd = lineTotal;
                 durationToAdd = 30;
             }
 
@@ -1115,7 +1129,7 @@ export default function WorkOrderDetailPage() {
                                                         brakeFluid: "زيت المكابح", coolant: "ماء الراديتر",
                                                         battery: "البطارية", engineBelts: "قايش المحرك",
                                                         brakePads: "دسكات السيارة", sparkPlugs: "شمعات الاحتراق",
-                                                        gearboxOil: "هايدروليك الكير", gearboxFilter: "فلتر الكير",
+                                                        gearboxHydraulic: "هايدروليك الكير", gearboxFilter: "فلتر الكير",
                                                         wipers: "الماسحات", additives: "المضافات والمحسنات"
                                                     };
                                                     setDynamicSvcName(standardNames[val] || val);
@@ -1136,7 +1150,8 @@ export default function WorkOrderDetailPage() {
                                                 <option value="engineBelts">⛓️ قايش المحرك</option>
                                                 <option value="brakePads">💿 دسكات السيارة</option>
                                                 <option value="sparkPlugs">🔌 شمعات الاحتراق</option>
-                                                <option value="gearboxOil">⚙️ هايدروليك الكير</option>
+                                                {/* Reception's key for hydraulic is gearboxHydraulic (gearboxOil is زيت كير). */}
+                                                <option value="gearboxHydraulic">⚙️ هايدروليك الكير</option>
                                                 <option value="gearboxFilter">⚙️ فلتر الكير</option>
                                                 <option value="wipers">🧹 الماسحات</option>
                                                 <option value="additives">🧪 المضافات والمحسنات</option>
@@ -1162,6 +1177,21 @@ export default function WorkOrderDetailPage() {
                                             />
                                         </div>
                                     )}
+
+                                    {/* Without a price the custom line saved 0 and never reached the invoice total. */}
+                                    {selectedSvcKey === "custom" && (
+                                        <div>
+                                            <label className="text-xs text-muted-foreground block mb-1">السعر (د.ع):</label>
+                                            <input
+                                                type="text"
+                                                inputMode="numeric"
+                                                value={withCommas(dynamicSvcPrice)}
+                                                onChange={e => setDynamicSvcPrice(digitsOnly(e.target.value))}
+                                                placeholder="0"
+                                                className="w-full bg-card border border-border rounded-xl p-2.5 text-sm text-foreground focus:border-blue-500 focus:outline-none"
+                                            />
+                                        </div>
+                                    )}
                                 </div>
 
                                 {selectedSvcKey && selectedSvcKey !== "custom" && (
@@ -1180,11 +1210,11 @@ export default function WorkOrderDetailPage() {
                                                 </div>
                                                 <div>
                                                     <label className="text-xs text-muted-foreground block mb-1">عدد اللترات:</label>
-                                                    <input type="text" value={svcLiters} onChange={e=>setSvcLiters(e.target.value)} className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="4.5"/>
+                                                    <input type="text" inputMode="decimal" value={svcLiters} onChange={e=>setSvcLiters(decimalsOnly(e.target.value))}className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="4.5"/>
                                                 </div>
                                                 <div>
                                                     <label className="text-xs text-muted-foreground block mb-1">السعر المفرد (د.ع):</label>
-                                                    <input type="text" value={svcPrice} onChange={e=>setSvcPrice(e.target.value)} className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="0"/>
+                                                    <input type="text" inputMode="numeric" value={withCommas(svcPrice)} onChange={e=>setSvcPrice(digitsOnly(e.target.value))}className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="0"/>
                                                 </div>
                                             </div>
                                         )}
@@ -1201,12 +1231,12 @@ export default function WorkOrderDetailPage() {
                                                 </div>
                                                 <div>
                                                     <label className="text-xs text-muted-foreground block mb-1">السعر (د.ع):</label>
-                                                    <input type="text" value={svcPrice} onChange={e=>setSvcPrice(e.target.value)} className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="0"/>
+                                                    <input type="text" inputMode="numeric" value={withCommas(svcPrice)} onChange={e=>setSvcPrice(digitsOnly(e.target.value))}className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="0"/>
                                                 </div>
                                             </div>
                                         )}
 
-                                        {["brakeFluid", "gearboxOil"].includes(selectedSvcKey) && (
+                                        {["brakeFluid", "gearboxHydraulic"].includes(selectedSvcKey) && (
                                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                                 <div>
                                                     <label className="text-xs text-muted-foreground block mb-1">النوع/الماركة:</label>
@@ -1214,11 +1244,11 @@ export default function WorkOrderDetailPage() {
                                                 </div>
                                                 <div>
                                                     <label className="text-xs text-muted-foreground block mb-1">الكمية/العدد:</label>
-                                                    <input type="text" value={svcQty} onChange={e=>setSvcQty(e.target.value)} className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="1"/>
+                                                    <input type="text" inputMode="decimal" value={svcQty} onChange={e=>setSvcQty(decimalsOnly(e.target.value))}className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="1"/>
                                                 </div>
                                                 <div>
                                                     <label className="text-xs text-muted-foreground block mb-1">السعر المفرد (د.ع):</label>
-                                                    <input type="text" value={svcPrice} onChange={e=>setSvcPrice(e.target.value)} className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="0"/>
+                                                    <input type="text" inputMode="numeric" value={withCommas(svcPrice)} onChange={e=>setSvcPrice(digitsOnly(e.target.value))}className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="0"/>
                                                 </div>
                                             </div>
                                         )}
@@ -1239,11 +1269,11 @@ export default function WorkOrderDetailPage() {
                                                 </div>
                                                 <div>
                                                     <label className="text-xs text-muted-foreground block mb-1">العدد:</label>
-                                                    <input type="text" value={svcQty} onChange={e=>setSvcQty(e.target.value)} className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="1"/>
+                                                    <input type="text" inputMode="decimal" value={svcQty} onChange={e=>setSvcQty(decimalsOnly(e.target.value))}className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="1"/>
                                                 </div>
                                                 <div>
                                                     <label className="text-xs text-muted-foreground block mb-1">السعر المفرد (د.ع):</label>
-                                                    <input type="text" value={svcPrice} onChange={e=>setSvcPrice(e.target.value)} className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="0"/>
+                                                    <input type="text" inputMode="numeric" value={withCommas(svcPrice)} onChange={e=>setSvcPrice(digitsOnly(e.target.value))}className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="0"/>
                                                 </div>
                                             </div>
                                         )}
@@ -1256,7 +1286,7 @@ export default function WorkOrderDetailPage() {
                                                 </div>
                                                 <div>
                                                     <label className="text-xs text-muted-foreground block mb-1">السعر (د.ع):</label>
-                                                    <input type="text" value={svcPrice} onChange={e=>setSvcPrice(e.target.value)} className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="0"/>
+                                                    <input type="text" inputMode="numeric" value={withCommas(svcPrice)} onChange={e=>setSvcPrice(digitsOnly(e.target.value))}className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="0"/>
                                                 </div>
                                             </div>
                                         )}
@@ -1273,7 +1303,7 @@ export default function WorkOrderDetailPage() {
                                                 </div>
                                                 <div>
                                                     <label className="text-xs text-muted-foreground block mb-1">السعر (د.ع):</label>
-                                                    <input type="text" value={svcPrice} onChange={e=>setSvcPrice(e.target.value)} className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="0"/>
+                                                    <input type="text" inputMode="numeric" value={withCommas(svcPrice)} onChange={e=>setSvcPrice(digitsOnly(e.target.value))}className="w-full bg-muted/50 border border-border rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500" placeholder="0"/>
                                                 </div>
                                             </div>
                                         )}
@@ -1312,24 +1342,26 @@ export default function WorkOrderDetailPage() {
                                                             ))}
                                                         </select>
                                                         <input
-                                                            type="number"
+                                                            type="text"
+                                                            inputMode="decimal"
                                                             placeholder="العدد"
                                                             className="bg-muted/50 border border-border rounded-xl p-2 text-xs focus:outline-none focus:border-blue-500 w-16 text-center"
                                                             value={w.qty}
                                                             onChange={e => {
                                                                 const updated = [...wipersList];
-                                                                updated[idx].qty = e.target.value;
+                                                                updated[idx].qty = decimalsOnly(e.target.value);
                                                                 setWipersList(updated);
                                                             }}
                                                         />
                                                         <input
-                                                            type="number"
+                                                            type="text"
+                                                            inputMode="numeric"
                                                             placeholder="السعر المفرد"
                                                             className="bg-muted/50 border border-border rounded-xl p-2 text-xs focus:outline-none focus:border-blue-500 w-24 text-left"
-                                                            value={w.price}
+                                                            value={withCommas(w.price)}
                                                             onChange={e => {
                                                                 const updated = [...wipersList];
-                                                                updated[idx].price = e.target.value;
+                                                                updated[idx].price = digitsOnly(e.target.value);
                                                                 setWipersList(updated);
                                                             }}
                                                         />
@@ -1380,24 +1412,26 @@ export default function WorkOrderDetailPage() {
                                                             }}
                                                         />
                                                         <input
-                                                            type="number"
+                                                            type="text"
+                                                            inputMode="decimal"
                                                             placeholder="العدد"
                                                             className="bg-muted/50 border border-border rounded-xl p-2 text-xs focus:outline-none focus:border-blue-500 w-16 text-center"
                                                             value={a.qty}
                                                             onChange={e => {
                                                                 const updated = [...additivesList];
-                                                                updated[idx].qty = e.target.value;
+                                                                updated[idx].qty = decimalsOnly(e.target.value);
                                                                 setAdditivesList(updated);
                                                             }}
                                                         />
                                                         <input
-                                                            type="number"
+                                                            type="text"
+                                                            inputMode="numeric"
                                                             placeholder="السعر المفرد"
                                                             className="bg-muted/50 border border-border rounded-xl p-2 text-xs focus:outline-none focus:border-blue-500 w-24 text-left"
-                                                            value={a.price}
+                                                            value={withCommas(a.price)}
                                                             onChange={e => {
                                                                 const updated = [...additivesList];
-                                                                updated[idx].price = e.target.value;
+                                                                updated[idx].price = digitsOnly(e.target.value);
                                                                 setAdditivesList(updated);
                                                             }}
                                                         />
@@ -1444,9 +1478,9 @@ export default function WorkOrderDetailPage() {
                                     <>
                                     {selectedSvcKey !== "custom" && (() => {
                                         let total = 0;
-                                        if (selectedSvcKey === "wipers") total = wipersList.reduce((s, w) => s + (parseFloat(w.price) || 0) * (parseFloat(w.qty) || 1), 0);
-                                        else if (selectedSvcKey === "additives") total = additivesList.reduce((s, a) => s + (parseFloat(a.price) || 0) * (parseFloat(a.qty) || 1), 0);
-                                        else total = (parseFloat(svcPrice) || 0) * (parseFloat((selectedSvcKey === 'engineOil' ? svcLiters : svcQty) || "1") || 1);
+                                        if (selectedSvcKey === "wipers") total = wipersList.reduce((s, w) => s + floorLineTotal(w.price, w.qty), 0);
+                                        else if (selectedSvcKey === "additives") total = additivesList.reduce((s, a) => s + floorLineTotal(a.price, a.qty), 0);
+                                        else total = floorLineTotal(svcPrice, selectedSvcKey === 'engineOil' ? svcLiters : svcQty);
                                         return (
                                             <div className="flex items-center justify-between px-1 mt-2 py-2 border-t border-border/60 text-sm">
                                                 <span className="font-bold text-muted-foreground">الإجمالي (العدد × السعر المفرد):</span>
@@ -1466,7 +1500,7 @@ export default function WorkOrderDetailPage() {
                                                         name: dynamicSvcName,
                                                         category: dynamicSvcCategory,
                                                         estimatedMinutes: parseInt(dynamicSvcDuration) || 30,
-                                                        price: parseFloat(dynamicSvcPrice) || 0,
+                                                        price: parseInt(digitsOnly(dynamicSvcPrice)) || 0,
                                                         details: dynamicSvcDetails
                                                     };
                                                     await handleAddDynamicService("custom", newSvc);

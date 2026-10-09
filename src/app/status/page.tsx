@@ -20,6 +20,18 @@ type WorkOrder = {
     technician_id: string | null;
 };
 
+// Fields the board reads fresh before moving a card off the floor.
+type FreshRow = {
+    status?: string;
+    start_time?: string | null;
+    elapsed_time?: number | null;
+    estimated_duration?: number | null;
+    order_type?: string | null;
+    selected_services?: unknown;
+    technician_rating?: string | null;
+};
+type FirstPayload = { technicians?: { name?: string; rating?: string }[]; technicianName?: string; shiftSupervisor?: string };
+
 const COLUMNS = [
     { id: 'تم الاستلام', label: 'تم الاستلام (قيد الانتظار)', icon: Clock, color: 'text-muted-foreground', border: 'border-border', bg: 'bg-card' },
     { id: 'قيد العمل', label: 'جاري العمل (بالورشة)', icon: Activity, color: 'text-blue-400', border: 'border-blue-500/30', bg: 'bg-blue-900/10' },
@@ -99,11 +111,39 @@ export default function KanbanStatusPage() {
         if (!orderId || !newStatus) return;
 
         const currentOrder = orders.find(o => o.id === orderId);
-        
+
         // If moving to "قيد العمل" from "تم الاستلام", open assignment modal
         if (newStatus === 'قيد العمل' && currentOrder?.status === 'تم الاستلام') {
             handleOpenAssignModal(orderId);
             return;
+        }
+
+        // Read the fresh row: completing needs the real timer fields and technician data.
+        const { data: fresh } = await supabase.from('inspection_reports')
+            .select('status, start_time, elapsed_time, estimated_duration, order_type, selected_services, technician_rating')
+            .eq('id', orderId).single();
+        const freshRow: FreshRow | undefined = fresh ?? currentOrder;
+        const wasRunning = freshRow?.status === 'قيد العمل' || freshRow?.status === 'متأخر';
+        // Same timer math as the work-order page's handleComplete: bank the running
+        // segment into elapsed_time whenever the card leaves the floor.
+        let finalElapsed = freshRow?.elapsed_time || 0;
+        if (wasRunning && freshRow?.start_time) {
+            finalElapsed += Math.floor((new Date().getTime() - new Date(freshRow.start_time).getTime()) / 60000);
+        }
+
+        // Same completion lock as the work-order page: maintenance orders need a supervisor
+        // and at least one technician, each with a rating.
+        if (newStatus === 'تم الانتهاء' && freshRow?.order_type !== 'sale') {
+            const ss = freshRow?.selected_services;
+            const p0 = (Array.isArray(ss) ? ss[0] : ss) as FirstPayload | undefined;
+            const techs = (Array.isArray(p0?.technicians) ? p0.technicians : []).filter(t => String(t?.name || '').trim());
+            const techsOk = techs.length > 0
+                ? techs.every(t => !!t?.rating)
+                : !!String(p0?.technicianName || '').trim() && !!freshRow?.technician_rating;
+            if (!techsOk || !String(p0?.shiftSupervisor || '').trim()) {
+                showError("لا يمكن إنهاء المهمة", "أكمل أسماء الفنيين وتقييمهم واسم المشرف من صفحة تفاصيل أمر العمل قبل الإنهاء.");
+                return;
+            }
         }
 
         // Optimistic UI update
@@ -112,14 +152,18 @@ export default function KanbanStatusPage() {
 
         // Db Update
         const updateData: any = { status: newStatus };
-        
+        if (wasRunning && newStatus !== 'قيد العمل') {
+            updateData.elapsed_time = finalElapsed;
+        }
+
         // If moved to "تم الانتهاء", log completed_at
         if (newStatus === 'تم الانتهاء') {
             updateData.completed_at = new Date().toISOString();
             updateData.end_time = new Date().toISOString();
+            updateData.is_delayed = finalElapsed > (freshRow?.estimated_duration || 0);
         } else {
             updateData.completed_at = null;
-            if (newStatus === 'قيد العمل') {
+            if (newStatus === 'قيد العمل' && !wasRunning) {
                 updateData.start_time = new Date().toISOString();
             }
         }
@@ -137,21 +181,35 @@ export default function KanbanStatusPage() {
 
     const handleOpenAssignModal = (orderId: string) => {
         setSelectedOrderId(orderId);
-        setAssignData({ technician_id: "", bay_number: "", estimated_duration: "60" });
+        // Prefill from the card so editing a running assignment doesn't reset its estimate.
+        const o = orders.find(x => x.id === orderId);
+        setAssignData({
+            technician_id: o?.technician_id || "",
+            bay_number: o?.bay_number || "",
+            estimated_duration: o?.estimated_duration ? String(o.estimated_duration) : "60",
+        });
         setIsAssignModalOpen(true);
     };
 
     const handleSaveAssignment = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedOrderId) return;
-        
-        const { error } = await supabase.from('inspection_reports').update({
+
+        const o = orders.find(x => x.id === selectedOrderId);
+        const isRunning = o?.status === 'قيد العمل' || o?.status === 'متأخر';
+        const update: Record<string, unknown> = {
             technician_id: assignData.technician_id || null,
             bay_number: assignData.bay_number,
-            estimated_duration: Math.max(1, parseInt(assignData.estimated_duration) || 60),
             status: 'قيد العمل',
-            start_time: new Date().toISOString()
-        }).eq('id', selectedOrderId);
+        };
+        // Keep an existing estimate unless one was actually entered.
+        const est = parseInt(assignData.estimated_duration);
+        if (est > 0) update.estimated_duration = est;
+        else if (!o?.estimated_duration) update.estimated_duration = 60;
+        // Re-assigning a running card must not restart its timer.
+        if (!isRunning) update.start_time = new Date().toISOString();
+
+        const { error } = await supabase.from('inspection_reports').update(update).eq('id', selectedOrderId);
 
         if (error) {
             showError("فشل", "حدث خطأ أثناء إسناد المهمة");
@@ -187,6 +245,8 @@ export default function KanbanStatusPage() {
                             const columnOrders = orders.filter(o => {
                                 if (column.id === 'متأخر') return o.is_delayed || o.status === 'متأخر';
                                 if (o.is_delayed && o.status !== 'تم الانتهاء') return false; // Hide from standard cols if delayed
+                                // «انتظار» has no column of its own; park it with the waiting (received) cards.
+                                if (o.status === 'بانتظار العميل') return column.id === 'تم الاستلام';
                                 return o.status === column.id;
                             });
 
@@ -216,6 +276,11 @@ export default function KanbanStatusPage() {
                                                     {(order.is_delayed || order.status === 'متأخر') && (
                                                         <span className="text-[10px] bg-rose-500/10 text-rose-500 border border-rose-500/20 px-2 py-0.5 rounded flex items-center gap-1 font-bold">
                                                             <AlertCircle size={10} /> متأخر
+                                                        </span>
+                                                    )}
+                                                    {order.status === 'بانتظار العميل' && (
+                                                        <span className="text-[10px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-0.5 rounded font-bold">
+                                                            بانتظار العميل
                                                         </span>
                                                     )}
                                                 </div>

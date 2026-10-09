@@ -48,7 +48,9 @@ const SERVICE_LABELS: Record<string, string> = {
     engineBelts: 'قايش المحرك',
     brakePads: 'دسكات السيارة', 
     sparkPlugs: 'شمعات الاحتراق',
-    gearboxOil: 'هايدروليك الكير', 
+    gearboxOil: 'زيت كير',
+    gearboxHydraulic: 'هايدروليك الكير',
+    tires: 'الإطارات',
     gearboxFilter: 'فلتر الكير',
     wipers: 'مساحات زجاج', 
     windshieldFluid: 'سائل غسيل جام',
@@ -470,11 +472,13 @@ export default function PublicBookletPage() {
                                         const visc = oilDetails.viscosity || "";
                                         const qty = oilDetails.liters || oilDetails.qty || "";
                                         detailStr = [brand, visc, qty ? `${qty}L` : ""].filter(Boolean).join(" - ");
-                                    } else if (key === 'additives' || key === 'cleaners') {
-                                        const added: string[] = [];
-                                        for (let i = 0; i < 10; i++) {
-                                            if (val.details?.[`prod_${i}`]) added.push(val.details[`prod_${i}`]);
-                                        }
+                                    } else if (key === 'additives' || key === 'cleaners' || Object.keys(val.details || {}).some(k => k.startsWith('prod_'))) {
+                                        // Multi-product lines (also wipers/tires) use any prod_* suffix
+                                        // (prod_1, prod_12, prod_extra_…), not just prod_0..prod_9.
+                                        const added = Object.keys(val.details || {})
+                                            .filter(k => k.startsWith('prod_'))
+                                            .map(k => String(val.details[k] ?? '').trim())
+                                            .filter(Boolean);
                                         detailStr = added.join(" + ");
                                     } else {
                                         const specs: string[] = [];

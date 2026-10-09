@@ -23,14 +23,39 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
         amountOwedByClient: 0,
         amountOwedToClient: 0,
     };
-    const customs = data?.customServices || oldServices.map((srv: any, i: number) => ({
+    // Services added on the floor are appended as selected_services[1..]; print them as extra lines.
+    const floorExtras = isPaperV2 && Array.isArray(report?.selected_services)
+        ? report.selected_services.slice(1).filter(Boolean).map((srv: { name?: string; label?: string; service?: string; status?: string; price?: number | string; details?: unknown; notes?: string }, i: number) => ({
+            id: `extra-${i}`,
+            label: srv.name || srv.label || srv.service || '',
+            status: srv.status || 'يحتاج تغيير',
+            price: srv.price || 0,
+            notes: (typeof srv.details === 'string' ? srv.details : '') || srv.notes || '',
+        }))
+        : [];
+    const customs = [...(data?.customServices || oldServices.map((srv: any, i: number) => ({
         // Stable, deterministic id (used as a React key below). Avoids Math.random()
         // during render, which would regenerate keys and remount rows every render.
         id: `old-${i}`,
         label: typeof srv === 'string' ? srv : (srv.service || srv.label || 'خدمة سابقة'),
         status: srv.status || 'مكتمل',
         price: srv.price || 0,
-    }));
+    }))), ...floorExtras];
+
+    // Totals: pricing.totalPrice/amountOwedByClient are only written by reception, so they go
+    // stale once the floor adds services or the audit closes the invoice. total_price is the
+    // real order total; a closed invoice uses the audit's own figures.
+    const toNum = (x: unknown) =>parseFloat(String(x ?? '').replace(/,/g, '')) || 0;
+    const isAccounted = p.accounted === true;
+    const orderTotal = report?.total_price !== undefined && report?.total_price !== null
+        ? toNum(report.total_price)
+        : toNum(p.totalPrice);
+    const totalVal = isAccounted ? (toNum(p.grandTotal) || orderTotal + toNum(p.discount)) : orderTotal;
+    const discountVal = toNum(p.discount);
+    const receivedVal = toNum(p.amountReceived);
+    // Reception's total is already net of its discount; the audit's grandTotal is not.
+    const netVal = isAccounted ? totalVal - discountVal : totalVal;
+    const remainingVal = Math.max(0, netVal - receivedVal);
     const booklet = data?.booklet || {};
 
     // لون المحرك من الداخل قبل تبديل الزيت (حالة المحرك عند الاستلام) — يُسجَّل مرة واحدة لكل مركبة.
@@ -108,6 +133,15 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
                 </span>
             </span>
         );
+    };
+
+    // The floor's add-service form saves engine oil as brand/liters while some branch layouts
+    // print type/qty — fall back to the sibling key instead of printing a blank.
+    const FIELD_FALLBACK: Record<string, string> = { type: 'brand', brand: 'type', qty: 'liters', liters: 'qty' };
+    const fieldVal = (det: Record<string, string | number | undefined> | undefined, key: string) => {
+        const own = det?.[key];
+        if (own !== undefined && own !== null && String(own).trim() !== '') return own;
+        return FIELD_FALLBACK[key] ? det?.[FIELD_FALLBACK[key]] : own;
     };
 
     const formatNum = (val: any) => {
@@ -513,7 +547,7 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
                                                 {/* ↑ was 10px → 11px */}
                                                 {svc.fields.map(f => (
                                                     <span key={f.key} style={{ whiteSpace: 'nowrap', fontSize: '11px' }}>
-                                                        {f.label}: <Val v={(s as any)[svc.key]?.details?.[f.key]} w={42} />
+                                                        {f.label}: <Val v={fieldVal((s as any)[svc.key]?.details, f.key)} w={42} />
                                                     </span>
                                                 ))}
                                                 {(s as any)[svc.key]?.details?.notes && (
@@ -562,10 +596,10 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
                     marginBottom: mb('4px', '9px'),                // ↓ was 6px/12px
                 }}>
                     {[
-                        { label: 'المجموع الكلي', val: formatNum(p.totalPrice || 0), color: '#1a1a2e' },
-                        { label: 'الخصم', val: formatNum(p.discount || 0), color: '#d97706' },
-                        { label: 'المبلغ الواصل', val: formatNum(p.amountReceived || 0), color: '#15803d' },
-                        { label: 'الباقي', val: formatNum(p.amountOwedByClient || 0), color: '#dc2626' },
+                        { label: 'المجموع الكلي', val: formatNum(totalVal), color: '#1a1a2e' },
+                        { label: 'الخصم', val: formatNum(discountVal), color: '#d97706' },
+                        { label: 'المبلغ الواصل', val: formatNum(receivedVal), color: '#15803d' },
+                        { label: 'الباقي', val: formatNum(remainingVal), color: '#dc2626' },
                     ].map(item => (
                         <div key={item.label} style={{
                             border: `1.5px solid ${item.color}22`, borderRadius: '8px',
