@@ -14,7 +14,8 @@ import {
 import { showConfirm, showError, showSuccess } from "@/lib/alerts";
 import { INSPECTION_SECTIONS } from "@/lib/comprehensiveInspection";
 import { normalizeBookletCode } from "@/lib/booklet";
-import { useContracts } from "@/lib/contracts";
+import { useContracts, invoiceMoney } from "@/lib/contracts";
+import { toLatinDigits } from "@/lib/format";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as XLSX from 'xlsx';
@@ -37,6 +38,60 @@ const isAccounted = (o: any) => {
     if (o.order_type === 'sale') return true;
     const p = (Array.isArray(o.selected_services) ? o.selected_services[0] : o.selected_services)?.pricing;
     return p?.accounted === true;
+};
+
+// One normalisation for the search box, shared by the list query and the export so
+// both find the same customers: Latin digits, a scanned booklet URL reduced to its
+// serial, and no characters that belong to the PostgREST .or() filter grammar
+// (a comma, parenthesis or quote in the raw term corrupts the whole filter).
+const normalizeSearchTerm = (raw: string) =>
+    normalizeBookletCode(toLatinDigits(raw || "")).replace(/[,()"\\]/g, "").trim();
+
+// Arabic spelling variants (أ/إ/آ/ا, ى/ي, ة/ه) folded together for in-memory matching.
+const foldArabic = (s: string) =>
+    toLatinDigits(s || "").toLowerCase().replace(/[أإآ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه");
+
+// ilike patterns for a normalised term. Older rows keep digits as typed (plate
+// "بغداد ١٢٣٤"), so the Arabic-Indic form is searched too; each letter that has
+// spelling variants becomes the single-char wildcard "_" so "احمد" finds "أحمد".
+const searchPatterns = (term: string) => {
+    const wild = (s: string) => s.replace(/[اأإآ]/g, "_").replace(/[يى]/g, "_").replace(/[هة]/g, "_");
+    const arabicDigits = term.replace(/\d/g, d => String.fromCharCode(0x0660 + Number(d)));
+    return [...new Set([wild(term), wild(arabicDigits)])];
+};
+
+// Paid = what was actually collected on closed invoices (net capped by the amount
+// received). Pending, junk-excluded, cancelled and contract-credit invoices add nothing.
+const paidOf = (r: { status?: string | null; total_price?: number | string | null; selected_services?: unknown }) => {
+    const p = (Array.isArray(r.selected_services) ? r.selected_services[0] : r.selected_services) as { pricing?: Record<string, unknown> } | null | undefined;
+    const status = r.status === 'ملغي' || r.status === 'cancelled' ? 'ملغى' : r.status;
+    return invoiceMoney({ status, total_price: r.total_price, pricing: p?.pricing }).received;
+};
+
+// The list shows one card per car; duplicate vehicle rows (same make/model/plate) collapse.
+const uniqueVehicles = <V extends { make?: string | null; model?: string | null; plate_number?: string | null }>(vs: V[]) => {
+    const seen = new Set<string>();
+    return vs.filter(v => {
+        const key = `${(v.make || "").trim().toLowerCase()}_${(v.model || "").trim().toLowerCase()}_${(v.plate_number || "").trim().toLowerCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+};
+
+// Which of these vehicles have at least one contract order (any contract).
+const vehiclesWithContractOrders = async (ids: string[]) => {
+    const out = new Set<string>();
+    for (let i = 0; i < ids.length; i += 200) {
+        // Paged: one fleet car can carry hundreds of contract orders.
+        for (let from = 0; from < 20000; from += 1000) {
+            const { data } = await supabase.from('inspection_reports').select('vehicle_id')
+                .not('contract_id', 'is', null).in('vehicle_id', ids.slice(i, i + 200)).range(from, from + 999);
+            (data || []).forEach(r => { if (r.vehicle_id) out.add(r.vehicle_id); });
+            if (!data || data.length < 1000) break;
+        }
+    }
+    return out;
 };
 
 /**
@@ -262,23 +317,22 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
 
             // Search term -> a (usually small) set of matching client ids, applied via .in().
             let searchClientIds: Set<string> | null = null;
-            if (debouncedSearchTerm) {
-                // A laser scanner types the whole booklet URL; reduce it to the serial
-                // so scanning into this box still finds the customer. Strip characters
-                // that are part of the PostgREST .or() filter grammar — a comma or
-                // parenthesis in the raw term corrupts the whole filter expression.
-                const term = normalizeBookletCode(debouncedSearchTerm).replace(/[,()]/g, "");
+            // A laser scanner types the whole booklet URL; normalizeSearchTerm reduces
+            // it to the serial so scanning into this box still finds the customer.
+            const term = normalizeSearchTerm(debouncedSearchTerm);
+            if (term) {
+                const pats = searchPatterns(term);
                 // .limit(500): a 1-char term can match thousands of rows, and every id
                 // ends up in the .in('id', ...) below — past ~500 the URL gets too long.
                 const { data: matchedClients } = await supabase
                     .from('clients')
                     .select('id')
-                    .or(`name.ilike.%${term}%,phone.ilike.%${term}%`)
+                    .or(pats.flatMap(p => [`name.ilike.%${p}%`, `phone.ilike.%${p}%`]).join(','))
                     .limit(500);
                 const { data: matchedVehicles } = await supabase
                     .from('vehicles')
                     .select('client_id')
-                    .or(`plate_number.ilike.%${term}%,make.ilike.%${term}%,booklet_serial.ilike.%${term}%`)
+                    .or(pats.flatMap(p => [`plate_number.ilike.%${p}%`, `make.ilike.%${p}%`, `booklet_serial.ilike.%${p}%`]).join(','))
                     .limit(500);
 
                 if (stale()) return;
@@ -358,7 +412,7 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
                 // The full vehicles+reports scan below is expensive, so its result is
                 // cached and reused for page clicks — the key only changes when the
                 // filter itself or a realtime refresh invalidates it.
-                const cacheKey = JSON.stringify({ visitFilter, refreshTrigger });
+                const cacheKey = JSON.stringify({ visitFilter, refreshTrigger, cid, activeBranchId, dateFrom, dateTo });
                 let qualified: string[];
                 if (visitFilterCache.current?.key === cacheKey) {
                     qualified = visitFilterCache.current.ids;
@@ -391,6 +445,28 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
                     qualified = visitFilter === 'repeat'
                         ? [...visitsByClient.entries()].filter(([, n]) => n > 1).sort((a, b) => b[1] - a[1]).map(([id]) => id)
                         : [...branchesByClient.entries()].filter(([, s]) => s.size > 1).sort((a, b) => b[1].size - a[1].size).map(([id]) => id);
+                    // The visit/branch criterion stays global, but only customers with a
+                    // visit inside the active branch/date filter can appear: the list query
+                    // applies that filter too, so qualifying anyone else here inflated the
+                    // count and left pages short or empty.
+                    if (activeBranchId || dateFrom || dateTo) {
+                        const inFilter = new Set<string>();
+                        for (let from = 0; from < 200000; from += PAGE) {
+                            let fq = supabase.from('inspection_reports').select('vehicle_id');
+                            fq = cid ? fq.eq('contract_id', cid) : fq.is('contract_id', null);
+                            if (activeBranchId) fq = fq.eq('branch_id', activeBranchId);
+                            if (dateFrom) fq = fq.gte('created_at', `${dateFrom}T00:00:00`);
+                            if (dateTo) fq = fq.lte('created_at', `${dateTo}T23:59:59`);
+                            const { data: fs } = await fq.range(from, from + PAGE - 1);
+                            (fs || []).forEach(r => {
+                                const owner = r.vehicle_id ? vehToClient.get(r.vehicle_id) : null;
+                                if (owner) inFilter.add(owner);
+                            });
+                            if (!fs || fs.length < PAGE) break;
+                        }
+                        if (stale()) return;
+                        qualified = qualified.filter(id => inFilter.has(id));
+                    }
                     const counts: Record<string, number> = {};
                     if (visitFilter === 'repeat') visitsByClient.forEach((n, id) => { counts[id] = n; });
                     else branchesByClient.forEach((s, id) => { counts[id] = s.size; });
@@ -418,6 +494,17 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
             if (error) throw error;
 
             if (data) {
+                // Customers tab with no branch/date filter: the embed is a LEFT join, so a
+                // car whose only orders are contract orders still comes back (with no
+                // reports). Such cars belong to the contracts tab, like their invoices —
+                // hide them. (Every other mode uses an inner join on scoped orders.)
+                let contractCars = new Set<string>();
+                if (!hasReportFilter) {
+                    const rows = data as unknown as { vehicles?: { id: string; inspection_reports?: unknown[] | null }[] | null }[];
+                    const noOrders = rows.flatMap(c => (c.vehicles || []).filter(v => !v.inspection_reports?.length).map(v => v.id));
+                    contractCars = await vehiclesWithContractOrders(noOrders);
+                    if (stale()) return;
+                }
                 setTotalCount(filterCount ?? (count || 0));
                 const mapped = data.map((c: any) => {
                     const allReports: any[] = [];
@@ -455,26 +542,13 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
                         }
                     }
 
-                    const uniqueVehicles: any[] = [];
-                    const seenVehKeys = new Set<string>();
-                    c.vehicles?.forEach((v: any) => {
-                        const makeKey = (v.make || "").trim().toLowerCase();
-                        const modelKey = (v.model || "").trim().toLowerCase();
-                        const plateKey = (v.plate_number || "").trim().toLowerCase();
-                        const key = `${makeKey}_${modelKey}_${plateKey}`;
-                        if (!seenVehKeys.has(key)) {
-                            seenVehKeys.add(key);
-                            uniqueVehicles.push(v);
-                        }
-                    });
-
                     return {
                         id: c.id,
                         name: c.name,
                         phone: c.phone,
                         email: c.email,
                         created_at: c.created_at,
-                        vehicles: uniqueVehicles,
+                        vehicles: uniqueVehicles((c.vehicles || []).filter((v: { id: string }) => !contractCars.has(v.id))),
                         latestStatus,
                         branchIds: Array.from(branchIdSet),
                         branchNames: Array.from(branchNameSet),
@@ -506,7 +580,10 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
 
     const handleAddClient = async (e: React.FormEvent) => {
         e.preventDefault();
-        const { error } = await supabase.from('clients').insert([{ name, phone, email }]);
+        // Store phones one way (Latin digits, no spaces) so search and the UNIQUE
+        // check see "٠٧٧٠ ١٢٣" and "0770123" as the same number.
+        const cleanPhone = toLatinDigits(phone).replace(/\s+/g, "");
+        const { error } = await supabase.from('clients').insert([{ name, phone: cleanPhone, email }]);
         if (!error) {
             setIsAddModalOpen(false);
             setName(""); setPhone(""); setEmail("");
@@ -523,6 +600,35 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
     };
 
     const handleDeleteClient = async (id: string) => {
+        // Deleting a customer cascades to their cars and EVERY order on them — including
+        // orders that belong to the other tab (private invoices when deleting from a
+        // contract, unpaid contract invoices when deleting from العملاء). Refuse while
+        // any such order exists; those cars must be moved or removed there first.
+        const { data: cars, error: carsErr } = await supabase.from('vehicles').select('id').eq('client_id', id);
+        let outside = 0;
+        let checkErr = carsErr;
+        const carIds = (cars || []).map(v => v.id);
+        for (let i = 0; !checkErr && i < carIds.length; i += 200) {
+            let oq = supabase.from('inspection_reports').select('id', { count: 'exact', head: true })
+                .in('vehicle_id', carIds.slice(i, i + 200));
+            oq = cid ? oq.or(`contract_id.is.null,contract_id.neq.${cid}`) : oq.not('contract_id', 'is', null);
+            const { count, error } = await oq;
+            checkErr = error;
+            outside += count || 0;
+        }
+        if (checkErr) {
+            showError("خطأ", "تعذّر التحقق من فواتير العميل، لم يتم الحذف.");
+            return;
+        }
+        if (outside > 0) {
+            showError(
+                "لا يمكن حذف العميل",
+                cid
+                    ? `لهذا العميل ${outside} فاتورة خارج عقد ${contract?.name || ""} (في سجل العملاء أو عقد آخر). حذفه سيحذفها أيضاً — انقل سياراته أو احذف فواتيرها من هناك أولاً.`
+                    : `لهذا العميل ${outside} فاتورة ضمن العقود. حذفه سيحذفها أيضاً — انقل سياراته أو احذفها من تبويب العقود أولاً.`
+            );
+            return;
+        }
         const isConfirmed = await showConfirm(
             "حذف العميل",
             "هل أنت متأكد من حذف هذا العميل؟ سيتم حذف جميع البيانات المرتبطة به.",
@@ -542,9 +648,11 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
 
     const handleUpdateInfo = async () => {
         if (!selectedProfile) return;
+        // Same phone normalisation as when adding a customer.
+        const cleanPhone = toLatinDigits(editPhone).replace(/\s+/g, "");
         const { error } = await supabase
             .from('clients')
-            .update({ name: editName, phone: editPhone, email: editEmail })
+            .update({ name: editName, phone: cleanPhone, email: editEmail })
             .eq('id', selectedProfile.id);
             
         if (!error) {
@@ -553,7 +661,7 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
             setSelectedProfile({
                 ...selectedProfile,
                 name: editName,
-                phone: editPhone,
+                phone: cleanPhone,
                 email: editEmail
             });
             showSuccess("تم التحديث", "تم تحديث بيانات العميل بنجاح.");
@@ -703,25 +811,24 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
             if (!data || data.length < PAGE) break;
         }
 
-        if (filteredReports.length === 0) {
-            showError("لا توجد بيانات", "لا توجد سجلات ضمن الفلاتر المحددة (الفرع/التاريخ). جرّب توسيع المدة.");
-            return;
-        }
-
-        // 4. Apply searchTerm selected in UI
-        const term = (searchTerm || "").toLowerCase().trim();
+        // 4. Apply searchTerm selected in UI — normalised exactly like the list's search
+        // (digits, booklet URL → serial, Arabic letter variants) and over the same
+        // fields, booklet serial included, so the file matches what the list shows.
+        const term = foldArabic(normalizeSearchTerm(searchTerm));
         if (term) {
             filteredReports = filteredReports.filter((r: any) => {
                 const vehicle = Array.isArray(r.vehicles) ? r.vehicles[0] : r.vehicles;
                 const client  = vehicle ? (Array.isArray(vehicle.clients) ? vehicle.clients[0] : vehicle.clients) : null;
-                
-                const clientNameMatch = client?.name ? client.name.toLowerCase().includes(term) : false;
-                const clientPhoneMatch = client?.phone ? client.phone.toLowerCase().includes(term) : false;
-                const carMakeMatch = vehicle?.make ? vehicle.make.toLowerCase().includes(term) : false;
-                const plateMatch = vehicle?.plate_number ? vehicle.plate_number.toLowerCase().includes(term) : false;
-                
-                return clientNameMatch || clientPhoneMatch || carMakeMatch || plateMatch;
+                return [client?.name, client?.phone, vehicle?.make, vehicle?.plate_number, vehicle?.booklet_serial]
+                    .some(f => !!f && foldArabic(String(f)).includes(term));
             });
+        }
+
+        // Checked after the search filter: an export with matching dates but no
+        // matching customer used to write an empty file.
+        if (filteredReports.length === 0) {
+            showError("لا توجد بيانات", "لا توجد سجلات ضمن الفلاتر المحددة (الفرع/التاريخ/البحث). جرّب توسيع المدة أو تعديل البحث.");
+            return;
         }
 
         const STATUS_MAP: Record<string, string> = {
@@ -1023,7 +1130,16 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
                 if (r.branches?.name) branchNameSet.add(r.branches.name);
             }));
             allReports.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-            setSelectedProfile(prev => prev ? { ...prev, allReports, branchNames: Array.from(branchNameSet) } : prev);
+            // Same car scoping as the list: a contract file shows only cars with this
+            // contract's orders; the customers tab hides cars whose only orders are contract ones.
+            const noOrders = data.filter(v => !v.inspection_reports?.length).map(v => v.id);
+            const contractCars = cid ? null : await vehiclesWithContractOrders(noOrders);
+            const vehicles = uniqueVehicles(data.filter(v => v.inspection_reports?.length || (contractCars && !contractCars.has(v.id))));
+            // Only merge into the profile this request was for — a slow response for
+            // customer A must not overwrite customer B's file opened in the meantime.
+            setSelectedProfile(prev => prev && prev.id === client.id
+                ? { ...prev, allReports, vehicles, branchNames: Array.from(branchNameSet) }
+                : prev);
         }
     };
 
@@ -1670,7 +1786,7 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
                                                     <Download className="text-emerald-400 mb-1.5" size={22} />
                                                     <span className="text-[11px] text-muted-foreground font-medium">إجمالي المبالغ المدفوعة</span>
                                                     <span className="text-base font-black mt-1 text-emerald-400 font-mono" dir="ltr">
-                                                        {selectedProfile.allReports.reduce((acc, r) => acc + (r.total_price || 0), 0).toLocaleString()} <span className="text-[10px] font-sans">IQD</span>
+                                                        {selectedProfile.allReports.reduce((acc, r) => acc + paidOf(r), 0).toLocaleString()} <span className="text-[10px] font-sans">IQD</span>
                                                     </span>
                                                 </div>
                                                 {(() => {

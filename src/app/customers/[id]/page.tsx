@@ -9,6 +9,7 @@ import {
     TrendingUp, Activity, FileText, MapPin
 } from "lucide-react";
 import Link from "next/link";
+import { invoiceMoney } from "@/lib/contracts";
 
 type Vehicle = {
     id: string;
@@ -27,6 +28,7 @@ type InspectionReport = {
     odometer_reading: number;
     created_at: string;
     completed_at: string | null;
+    selected_services?: unknown;
     vehicles: { make: string; model: string; plate_number: string } | null;
 };
 
@@ -53,6 +55,12 @@ const isAccounted = (o: any) => {
 // The DB stores both Arabic and English status strings; normalize once here so
 // the stats and the badges agree on what "completed" / "in progress" means.
 const isCompletedStatus = (s: string | null | undefined) => s === "تم الانتهاء" || s === "completed";
+
+// What the customer actually paid on one order: closed invoices only, net capped by
+// the amount received (same rule as the contract statement). Pending, junk-excluded,
+// cancelled and credit invoices add nothing.
+const paidOf = (status: string | null | undefined, total_price: number | string | null | undefined, pricing: Record<string, unknown> | null | undefined) =>
+    invoiceMoney({ status: status === "ملغي" || status === "cancelled" ? "ملغى" : status, total_price, pricing }).received;
 const isInProgressStatus = (s: string | null | undefined) => s === "قيد العمل" || s === "in_progress";
 
 export default function CustomerProfilePage() {
@@ -110,6 +118,9 @@ export default function CustomerProfilePage() {
                 .from("inspection_reports")
                 .select(`id, report_number, status, order_type, total_price, odometer_reading, selected_services, created_at, completed_at, vehicles (make, model, plate_number)`)
                 .in("vehicle_id", vehicleIds)
+                // Contract (government) orders live in the contracts tab, not in the
+                // customer's own file — same split as the customers registry.
+                .is("contract_id", null)
                 .order("created_at", { ascending: false })
                 .limit(50);
 
@@ -121,7 +132,8 @@ export default function CustomerProfilePage() {
             const { count: visitCount } = await supabase
                 .from("inspection_reports")
                 .select("id", { count: "exact", head: true })
-                .in("vehicle_id", vehicleIds);
+                .in("vehicle_id", vehicleIds)
+                .is("contract_id", null);
 
             const allRows: any[] = [];
             const PAGE = 1000;
@@ -130,6 +142,7 @@ export default function CustomerProfilePage() {
                     .from("inspection_reports")
                     .select("total_price, status, order_type, selected_services->0->pricing")
                     .in("vehicle_id", vehicleIds)
+                    .is("contract_id", null)
                     .range(from, from + PAGE - 1);
                 if (error) break;
                 allRows.push(...(page || []));
@@ -137,7 +150,7 @@ export default function CustomerProfilePage() {
             }
             setLifetimeStats({
                 visits: visitCount ?? allRows.length,
-                spent: allRows.reduce((s, r) => s + (r.total_price || 0), 0),
+                spent: allRows.reduce((s, r) => s + paidOf(r.status, r.total_price, r.pricing), 0),
                 completed: allRows.filter(r => isCompletedStatus(r.status)).length,
             });
         } else {
@@ -176,7 +189,10 @@ export default function CustomerProfilePage() {
     // — Computed stats — lifetime totals from the dedicated queries, falling back
     // to the (max 50) loaded rows only while those queries haven't resolved yet.
     const totalVisits = lifetimeStats?.visits ?? reports.length;
-    const totalSpent = lifetimeStats?.spent ?? reports.reduce((s, r) => s + (r.total_price || 0), 0);
+    const totalSpent = lifetimeStats?.spent ?? reports.reduce((s, r) => {
+        const p = (Array.isArray(r.selected_services) ? r.selected_services[0] : r.selected_services) as { pricing?: Record<string, unknown> } | null | undefined;
+        return s + paidOf(r.status, r.total_price, p?.pricing);
+    }, 0);
     const completedReports = lifetimeStats?.completed ?? reports.filter(r => isCompletedStatus(r.status)).length;
     const lastVisit = reports[0]?.created_at ?? null;
     const daysSinceLastVisit = lastVisit

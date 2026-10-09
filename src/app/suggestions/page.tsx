@@ -193,6 +193,11 @@ export default function SuggestionsPage() {
     // Branch state parameters
     const [branches, setBranches] = useState<{id: string, name: string}[]>([]);
     const [selectedBranchId, setSelectedBranchId] = useState("");
+    // The branch whose lists are actually on screen. Saving upserts every list into
+    // selectedBranchId, so it is only allowed once that branch's own lists loaded —
+    // never while loading, after a failed load, or with another branch's lists.
+    const [loadedBranchId, setLoadedBranchId] = useState("");
+    const canSave = !!selectedBranchId && loadedBranchId === selectedBranchId;
     const { employeeBranchId, employeeRole } = useAuth();
 
     // Fetch branches list
@@ -218,6 +223,11 @@ export default function SuggestionsPage() {
         const requestId = ++fetchRequestIdRef.current;
         const fetchSuggestions = async () => {
             setLoading(true);
+            // Drop the previous branch's lists right away so they can neither show
+            // under the new branch nor be saved into it if this load fails.
+            setLoadedBranchId("");
+            setLists(Object.fromEntries(Object.keys(DEFAULT_LISTS).map(k => [k, [] as SuggestionItem[]])));
+            setHasChanges(false);
             try {
                 const { data, error } = await (supabase as any)
                     .from('suggestion_lists')
@@ -256,9 +266,13 @@ export default function SuggestionsPage() {
                 }
 
                 setLists(loadedLists);
+                setLoadedBranchId(selectedBranchId);
                 setHasChanges(false); // fresh branch data — nothing unsaved
             } catch (err) {
                 console.error("Error loading suggestion lists from Supabase:", err);
+                if (requestId === fetchRequestIdRef.current) {
+                    showError("تعذّر التحميل", "تعذّر تحميل قوائم الاقتراحات لهذا الفرع، لذلك الحفظ معطّل. أعد تحميل الصفحة.");
+                }
             } finally {
                 if (requestId === fetchRequestIdRef.current) {
                     setLoading(false);
@@ -337,6 +351,10 @@ export default function SuggestionsPage() {
 
     const handleSave = useCallback(async () => {
         if (!selectedBranchId) return;
+        if (!canSave) {
+            showError("لا يمكن الحفظ", "قوائم هذا الفرع لم تُحمَّل بعد. انتظر اكتمال التحميل أو أعد تحميل الصفحة.");
+            return;
+        }
         setSaving(true);
         try {
             // Write each list to Supabase
@@ -363,7 +381,7 @@ export default function SuggestionsPage() {
         } finally {
             setSaving(false);
         }
-    }, [lists, selectedBranchId]);
+    }, [lists, selectedBranchId, canSave]);
 
     const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>, categoryKey: string) => {
         const file = e.target.files?.[0];
@@ -558,9 +576,9 @@ export default function SuggestionsPage() {
 
                     <button
                         onClick={handleSave}
-                        disabled={!hasChanges || saving}
+                        disabled={!hasChanges || saving || !canSave}
                         className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg ${
-                            hasChanges
+                            hasChanges && canSave
                                 ? "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-500/20 cursor-pointer"
                                 : "bg-muted text-muted-foreground cursor-not-allowed shadow-none"
                         }`}
@@ -822,7 +840,7 @@ export default function SuggestionsPage() {
                 <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 md:hidden">
                     <button
                         onClick={handleSave}
-                        disabled={saving}
+                        disabled={saving || !canSave}
                         className="flex items-center gap-2 px-8 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-2xl shadow-2xl shadow-emerald-500/30 text-sm animate-bounce cursor-pointer"
                     >
                         {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
