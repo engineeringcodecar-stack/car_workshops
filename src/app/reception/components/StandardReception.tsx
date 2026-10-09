@@ -11,7 +11,7 @@ import {
     CheckCircle2, ArrowLeft, ArrowRight, FileText, Printer, Play, X
 } from "lucide-react";
 import { showSuccess } from "@/lib/alerts";
-import { withCommas, digitsOnly } from "@/lib/format";
+import { withCommas, withCommasDecimal, digitsOnly, decimalsOnly } from "@/lib/format";
 import { PrintableInspectionReport } from "@/components/PrintableInspectionReport";
 import { syncOrderToGoogleSheets } from "@/lib/googleSheetsSync";
 import { useContracts } from "@/lib/contracts";
@@ -155,7 +155,7 @@ function sumMultiProduct(details: Record<string, any>): number {
             sum += price * qty;
         }
     }
-    return sum;
+    return Math.round(sum);
 }
 
 const SECTOR_BRANCH_SERVICES = [
@@ -688,7 +688,7 @@ export default function StandardReception({
         const discVal = parseFloat(discount) || 0;
         const netTotal = Math.max(0, subtotal - discVal);
         
-        setTotalPrice(netTotal.toString());
+        setTotalPrice(Math.round(netTotal).toString());
     }, [services, customServices, discount]);
 
     // Custom services helpers
@@ -847,7 +847,7 @@ export default function StandardReception({
                 const q = parseFloat(newDet.qty || newDet.liters);
                 const up = parseFloat(newDet.unitPrice);
                 if (!isNaN(q) && !isNaN(up) && q > 0 && up > 0) {
-                    newPrice = (q * up).toString();
+                    newPrice = Math.round(q * up).toString();
                 } else if (!isNaN(up) && up > 0) {
                     newPrice = up.toString();
                 }
@@ -911,7 +911,7 @@ export default function StandardReception({
         const sumServices = Object.values(services).reduce((acc, svc) => acc + (parseFloat(svc.price) || 0), 0);
         const sumCustom = customServices.reduce((acc, svc) => acc + (parseFloat(svc.price) || 0), 0);
         const sum = sumServices + sumCustom;
-        if (sum > 0) setTotalPrice(sum.toString());
+        if (sum > 0) setTotalPrice(Math.round(sum).toString());
     };
 
     const handleNextStep1 = () => {
@@ -1788,7 +1788,7 @@ export default function StandardReception({
                                                                                     className="input-field text-xs py-1.5 w-full text-center"
                                                                                     dir="ltr"
                                                                                     value={entry.details[k.replace('prod_', 'qty_')] || ""}
-                                                                                    onChange={e => setServiceDetail(svc.key, k.replace('prod_', 'qty_'), digitsOnly(e.target.value))}
+                                                                                    onChange={e => setServiceDetail(svc.key, k.replace('prod_', 'qty_'), decimalsOnly(e.target.value))}
                                                                                 />
                                                                             </div>
                                                                             <div className="flex items-center gap-1 w-24">
@@ -1951,8 +1951,8 @@ export default function StandardReception({
                                             <input
                                                 type="text" inputMode="numeric"
                                                 placeholder="الكمية"
-                                                value={withCommas((cs as any).qty || "")}
-                                                onChange={e => setCustomSvcField(cs.id, 'qty', digitsOnly(e.target.value))}
+                                                value={withCommasDecimal((cs as any).qty || "")}
+                                                onChange={e => setCustomSvcField(cs.id, 'qty', decimalsOnly(e.target.value))}
                                                 className="input-field text-xs py-1.5 w-24 text-center"
                                                 min="1"
                                             />

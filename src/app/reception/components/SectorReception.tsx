@@ -11,7 +11,7 @@ import {
     CheckCircle2, ArrowLeft, ArrowRight, FileText, Printer, Play, X
 } from "lucide-react";
 import { showSuccess } from "@/lib/alerts";
-import { withCommas, digitsOnly } from "@/lib/format";
+import { withCommas, withCommasDecimal, digitsOnly, decimalsOnly } from "@/lib/format";
 import { PrintableInspectionReport } from "@/components/PrintableInspectionReport";
 import { emptyInspection } from "@/lib/comprehensiveInspection";
 import { syncOrderToGoogleSheets } from "@/lib/googleSheetsSync";
@@ -264,7 +264,7 @@ function sumMultiProduct(details: Record<string, any>): number {
             sum += price * qty;
         }
     }
-    return sum;
+    return Math.round(sum);
 }
 
 // Tire size is entered in ONE field and auto-slashed like a date: "205 / 55 / 16"
@@ -644,7 +644,7 @@ export default function SectorReception({
         const discVal = parseFloat(discount) || 0;
         const netTotal = Math.max(0, subtotal - discVal);
         
-        setTotalPrice(netTotal.toString());
+        setTotalPrice(Math.round(netTotal).toString());
     }, [services, customServices, discount]);
 
     // Custom services helpers
@@ -803,7 +803,7 @@ export default function SectorReception({
                 const q = parseFloat(newDet.qty || newDet.liters);
                 const up = parseFloat(newDet.unitPrice);
                 if (!isNaN(q) && !isNaN(up) && q > 0 && up > 0) {
-                    newPrice = (q * up).toString();
+                    newPrice = Math.round(q * up).toString();
                 } else if (!isNaN(up) && up > 0) {
                     newPrice = up.toString();
                 }
@@ -868,7 +868,7 @@ export default function SectorReception({
         const sumServices = Object.values(services).reduce((acc, svc) => acc + (parseFloat(svc.price) || 0), 0);
         const sumCustom = customServices.reduce((acc, svc) => acc + (parseFloat(svc.price) || 0), 0);
         const sum = sumServices + sumCustom;
-        if (sum > 0) setTotalPrice(sum.toString());
+        if (sum > 0) setTotalPrice(Math.round(sum).toString());
     };
 
     const handleNextStep1 = () => {
@@ -1561,7 +1561,7 @@ export default function SectorReception({
                                                                                 return (
                                                                                     <div key={k} className="flex flex-wrap items-center gap-2">
                                                                                         <input type="text" placeholder={`${svc.key === 'tires' ? 'اسم الإطار' : 'اسم المادة'} ${i + 1}`} className="input-field text-xs py-1.5 flex-1 min-w-[120px]" value={entry.details[k] || ""} onChange={e => setServiceDetail(svc.key, k, e.target.value)} />
-                                                                                        <input type="text" inputMode="numeric" placeholder="العدد" dir="ltr" className="input-field text-xs py-1.5 flex-1 min-w-[80px] text-center" value={entry.details[qtyKey] || ""} onChange={e => setServiceDetail(svc.key, qtyKey, digitsOnly(e.target.value))} />
+                                                                                        <input type="text" inputMode="numeric" placeholder="العدد" dir="ltr" className="input-field text-xs py-1.5 flex-1 min-w-[80px] text-center" value={entry.details[qtyKey] || ""} onChange={e => setServiceDetail(svc.key, qtyKey, decimalsOnly(e.target.value))} />
                                                                                         <input type="text" inputMode="numeric" placeholder="سعر الوحدة" dir="ltr" className="input-field text-xs py-1.5 flex-1 min-w-[120px] text-left" value={withCommas(entry.details[priceKey] || "")} onChange={e => setServiceDetail(svc.key, priceKey, digitsOnly(e.target.value))} />
                                                                                         <input type="text" placeholder="ملاحظة" className="input-field text-xs py-1.5 flex-1 min-w-[120px]" value={entry.details[noteKey] || ""} onChange={e => setServiceDetail(svc.key, noteKey, e.target.value)} />
                                                                                         {i > 0 && (
@@ -1750,7 +1750,7 @@ export default function SectorReception({
                                                                                     className="input-field text-xs py-1.5 w-full text-center"
                                                                                     dir="ltr"
                                                                                     value={entry.details[k.replace('prod_', 'qty_')] || ""}
-                                                                                    onChange={e => setServiceDetail(svc.key, k.replace('prod_', 'qty_'), digitsOnly(e.target.value))}
+                                                                                    onChange={e => setServiceDetail(svc.key, k.replace('prod_', 'qty_'), decimalsOnly(e.target.value))}
                                                                                 />
                                                                             </div>
                                                                             <div className="flex items-center gap-1 w-24">
@@ -1924,8 +1924,8 @@ export default function SectorReception({
                                             <input
                                                 type="text" inputMode="numeric"
                                                 placeholder="الكمية"
-                                                value={withCommas((cs as any).qty || "")}
-                                                onChange={e => setCustomSvcField(cs.id, 'qty', digitsOnly(e.target.value))}
+                                                value={withCommasDecimal((cs as any).qty || "")}
+                                                onChange={e => setCustomSvcField(cs.id, 'qty', decimalsOnly(e.target.value))}
                                                 className="input-field text-xs py-1.5 w-24 text-center"
                                                 min="1"
                                             />
