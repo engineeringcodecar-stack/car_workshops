@@ -126,6 +126,9 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
         fields?: { key: string; label: string }[];
     }) => {
         const svc = (s as any)[svcKey] || {};
+        // المساحات / الإطارات are saved as a product list (prod_N), not type/size fields.
+        const isProductList = svcKey === 'additives'
+            || ((svcKey === 'wipers' || svcKey === 'tires') && Object.keys(svc.details || {}).some(k => k.startsWith('prod_')));
         return (
             <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
                 <td style={{ padding: '3px 4px', textAlign: 'center', fontWeight: 700, fontSize: '11px', color: '#6b7280', width: '20px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>{num}</td>
@@ -134,13 +137,20 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
                     <StatusBadge status={svc.status} />
                 </td>
                 <td style={{ padding: '3px 5px', verticalAlign: 'middle', overflow: 'hidden' }}>
-                    {svcKey === 'additives' ? (
+                    {isProductList ? (
                         <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', fontSize: '11px' }}>
-                            {Object.keys(svc.details || {}).filter(k => k.startsWith('prod_')).map((k) => (
-                                <span key={k} style={{ whiteSpace: 'nowrap', fontSize: '11px' }}>
-                                    <Val v={svc.details?.[k]} w={60} />
-                                </span>
-                            ))}
+                            {Object.keys(svc.details || {}).filter(k => k.startsWith('prod_') && (svcKey === 'additives' || String(svc.details?.[k] ?? '').trim())).map((k) => {
+                                const suf = k.replace('prod_', '');
+                                const qty = svc.details?.[`qty_${suf}`];
+                                const note = svc.details?.[`notes_${k}`] || svc.details?.[`notes_${suf}`];
+                                return (
+                                    <span key={k} style={{ whiteSpace: 'nowrap', fontSize: '11px' }}>
+                                        <Val v={svc.details?.[k]} w={60} />
+                                        {svcKey !== 'additives' && qty ? <span> × {qty}</span> : null}
+                                        {svcKey !== 'additives' && note ? <span style={{ color: '#b45309' }}> ({note})</span> : null}
+                                    </span>
+                                );
+                            })}
                         </span>
                     ) : (fields && fields.length > 0 && (
                         <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center', flexWrap: 'nowrap', whiteSpace: 'nowrap', fontSize: '11px' }}>
@@ -480,19 +490,20 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
                                         <StatusBadge status={(s as any)[svc.key]?.status} />
                                     </td>
                                     <td style={{ padding: rowPadding, verticalAlign: 'middle', overflow: 'hidden' }}>
-                                        {(svc.key === 'additives' || svc.key === 'tires') ? (
+                                        {(svc.key === 'additives' || svc.key === 'tires'
+                                            || (svc.key === 'wipers' && Object.keys(s.wipers?.details || {}).some(k => k.startsWith('prod_')))) ? (
                                             <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', fontSize: '11px' }}>
                                                 {/* ↑ was 10px → 11px */}
-                                                {Object.keys((s as any)[svc.key]?.details || {}).filter(k => k.startsWith('prod_')).map((k) => {
+                                                {Object.keys((s as any)[svc.key]?.details || {}).filter(k => k.startsWith('prod_') && (svc.key !== 'wipers' || String(s.wipers?.details?.[k] ?? '').trim())).map((k) => {
                                                     const det = (s as any)[svc.key]?.details || {};
                                                     const suf = k.replace('prod_', '');
                                                     const qty = det[`qty_${suf}`];
-                                                    const note = det[`notes_${suf}`];
+                                                    const note = det[`notes_${suf}`] || det[`notes_${k}`];
                                                     return (
                                                         <span key={k} style={{ whiteSpace: 'nowrap', fontSize: '11px' }}>
                                                             <Val v={det[k]} w={60} />
-                                                            {svc.key === 'tires' && qty ? <span> × {qty}</span> : null}
-                                                            {svc.key === 'tires' && note ? <span style={{ color: '#b45309' }}> ({note})</span> : null}
+                                                            {(svc.key === 'tires' || svc.key === 'wipers') && qty ? <span> × {qty}</span> : null}
+                                                            {(svc.key === 'tires' || svc.key === 'wipers') && note ? <span style={{ color: '#b45309' }}> ({note})</span> : null}
                                                         </span>
                                                     );
                                                 })}
