@@ -39,6 +39,9 @@ type AttendanceRow = {
     check_out: string;
     status: string;
     note: string;
+    // Set by any edit in this period (incl. "الكل حاضر"): حاضر with no times is the
+    // default look of an empty row, so without this a daily-wage حاضر was never saved.
+    touched?: boolean;
 };
 
 export default function HrEmployeeProfilePage() {
@@ -159,8 +162,8 @@ export default function HrEmployeeProfilePage() {
     const branchName = (bid: string | null) => branches.find(b => b.id === bid)?.name || "بدون فرع";
     const fmt = (n: number) => new Intl.NumberFormat("en-US").format(n || 0);
 
-    const setRow = (i: number, key: keyof AttendanceRow, value: string) =>
-        setPeriodRows(rows => rows.map((r, idx) => (idx === i ? { ...r, [key]: value } : r)));
+    const setRow = (i: number, key: Exclude<keyof AttendanceRow, "touched">, value: string) =>
+        setPeriodRows(rows => rows.map((r, idx) => (idx === i ? { ...r, [key]: value, touched: true } : r)));
 
     // Quick range presets
     const applyPreset = (type: "month-to-date" | "full-month" | "this-week" | "last-7" | "last-15" | "prev-month") => {
@@ -212,7 +215,7 @@ export default function HrEmployeeProfilePage() {
     };
 
     const markAllPresent = () => {
-        setPeriodRows(rows => rows.map(r => ({ ...r, status: "حاضر" })));
+        setPeriodRows(rows => rows.map(r => ({ ...r, status: "حاضر", touched: true })));
     };
 
     const clearPeriodInputs = () => {
@@ -280,6 +283,7 @@ export default function HrEmployeeProfilePage() {
                     check_out: pastedMatch.check_out ?? (existingDb?.check_out ? existingDb.check_out.slice(0, 5) : ""),
                     status: pastedMatch.status || existingDb?.attendance_status || "حاضر",
                     note: pastedMatch.note ?? (existingDb?.note || ""),
+                    touched: true,
                 };
             }
 
@@ -304,7 +308,7 @@ export default function HrEmployeeProfilePage() {
         setSavingPeriod(true);
         try {
             const toSave = periodRows.filter(r =>
-                r.check_in || r.check_out || r.note || r.status !== "حاضر" || records.some(x => x.date === r.date)
+                r.touched || r.check_in || r.check_out || r.note || r.status !== "حاضر" || records.some(x => x.date === r.date)
             );
 
             if (toSave.length === 0) {

@@ -133,23 +133,25 @@ export default function TechnicianReportPage() {
     const [techSearch, setTechSearch] = useState("");
 
     const [branches, setBranches] = useState<{ id: string; name: string }[]>([]);
+    // "" = كل الفروع. Follows the sidebar: on "all branches" it used to force the first branch.
     const [selectedBranchId, setSelectedBranchId] = useState<string>("");
-    const branchName = branches.find((b) => b.id === selectedBranchId)?.name || "";
+    const [branchesReady, setBranchesReady] = useState(false);
+    const canPickBranch = employeeRole === "Owner" || employeeRole === "Admin" || !employeeBranchId;
+    const branchName = selectedBranchId ? (branches.find((b) => b.id === selectedBranchId)?.name || "") : (branches.length === 1 ? branches[0].name : "كل الفروع");
 
     useEffect(() => {
         const fetchBranches = async () => {
             const { data } = await supabase.from("branches").select("id, name");
-            if (data && data.length > 0) {
-                setBranches(data);
-                setSelectedBranchId(employeeBranchId || data[0].id);
-            }
+            if (data && data.length > 0) setBranches(data);
+            setSelectedBranchId(employeeBranchId || "");
+            setBranchesReady(true);
         };
         fetchBranches();
     }, [employeeBranchId]);
 
     useEffect(() => {
         if (authLoading || !isAuthorized) return;
-        if (branches.length > 0 && !selectedBranchId) return;
+        if (!branchesReady) return;
         setSelectedTech(null);
 
         const fetchRows = async () => {
@@ -173,8 +175,9 @@ export default function TechnicianReportPage() {
                     .order("created_at", { ascending: false })
                     .range(from, from + PAGE_SIZE - 1);
 
-                if (selectedBranchId) query = query.eq("branch_id", selectedBranchId);
-                else if (employeeBranchId) query = query.eq("branch_id", employeeBranchId);
+                // Staff locked to a branch always see their own; others see the picked one or all.
+                const branchFilter = canPickBranch ? selectedBranchId : employeeBranchId;
+                if (branchFilter) query = query.eq("branch_id", branchFilter);
 
                 const { data } = await query;
                 if (data && data.length) all.push(...(data as any));
@@ -184,7 +187,7 @@ export default function TechnicianReportPage() {
             setLoading(false);
         };
         fetchRows();
-    }, [month, selectedBranchId, employeeBranchId, authLoading, isAuthorized, branches.length]);
+    }, [month, selectedBranchId, employeeBranchId, authLoading, isAuthorized, branchesReady, canPickBranch]);
 
     const { groups, totalCars, totalServices } = useMemo(() => {
         const UNSET = "غير محدد";
@@ -195,6 +198,8 @@ export default function TechnicianReportPage() {
 
         for (const r of rows) {
             const payload = Array.isArray(r.selected_services) ? r.selected_services[0] : r.selected_services;
+            // An invoice removed from صفحة التدقيق is junk — no technician gets credit for it.
+            if (payload?.pricing?.auditExcluded === true) continue;
             const v = Array.isArray(r.vehicles) ? r.vehicles[0] : r.vehicles;
             const sc = countServices(payload);
             // Totals are per actual car (a shared car is still one car / its services counted once).
@@ -348,8 +353,9 @@ export default function TechnicianReportPage() {
                         <p className="text-muted-foreground">اختر فنياً لعرض بروفايله الكامل — كل أوامر العمل والخدمات اللي اشتغلهن خلال الشهر</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
-                        {branches.length > 1 && (employeeRole === "Owner" || employeeRole === "Admin" || !employeeBranchId) && (
+                        {branches.length > 1 && canPickBranch && (
                             <select value={selectedBranchId} onChange={(e) => setSelectedBranchId(e.target.value)} className="bg-card border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-rose-500/50 cursor-pointer">
+                                <option value="">كل الفروع</option>
                                 {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                             </select>
                         )}

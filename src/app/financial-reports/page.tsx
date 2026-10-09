@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/AuthProvider";
+import { invoiceMoney } from "@/lib/contracts";
 import * as XLSX from 'xlsx';
 import { FileText, Download, Calendar as CalIcon, Filter, Layers, PieChart, ShoppingCart, Wrench, BarChart2, Users, BookOpen, Printer } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell, CartesianGrid, Legend } from "recharts";
@@ -12,6 +14,10 @@ type ReportType = 'revenue' | 'work-orders' | 'inventory' | 'analytics';
 // and has no maintenance services — show the product names instead of the inspection details.
 function isSaleReport(r: any, svc: any): boolean {
     return r?.order_type === 'sale' || svc?.is_sale === true;
+}
+// Junk invoice removed from صفحة التدقيق — it must not show up in any report.
+function isAuditExcluded(svc: { pricing?: { auditExcluded?: unknown } } | null | undefined): boolean {
+    return svc?.pricing?.auditExcluded === true;
 }
 function saleProductsText(svc: any): string {
     const products = Array.isArray(svc?.products) ? svc.products : [];
@@ -44,6 +50,12 @@ async function fetchAllPages(buildQuery: (from: number, to: number) => any): Pro
 }
 
 export default function ReportsPage() {
+    // Same branch the sidebar is on (null = كل الفروع), like the other pages.
+    const { employeeRole, employeeBranchId, allowedPages, loading: authLoading } = useAuth();
+    // The sidebar shows this tab only to Owner/Admin or staff granted it explicitly —
+    // enforce the same rule here so typing the URL doesn't bypass the menu.
+    const isAuthorized = employeeRole === "Owner" || employeeRole === "Admin"
+        || (Array.isArray(allowedPages) && allowedPages.includes("financial-reports"));
     const [activeTab, setActiveTab] = useState<ReportType>('revenue');
     const [loading, setLoading] = useState(false);
     const [dateRange, setDateRange] = useState({ start: '', end: '' });
@@ -78,6 +90,7 @@ export default function ReportsPage() {
                         .eq('status', 'تم الانتهاء')
                         .eq(ACC, 'true')
                         .or(`${EXCL}.is.null,${EXCL}.neq.true`);
+                    if (employeeBranchId) q = q.eq('branch_id', employeeBranchId);
                     if (!fetchWithoutDates) {
                         if (dateRange.start) q = q.gte(ACC_AT, iraqDayStart(dateRange.start));
                         if (dateRange.end) q = q.lte(ACC_AT, iraqDayEnd(dateRange.end));
@@ -94,19 +107,28 @@ export default function ReportsPage() {
                     return q.order('created_at', { ascending: false }).range(from, to);
                 };
 
-                const [rows1, rows2] = await Promise.all([fetchAllPages(buildQ1), fetchAllPages(buildQ2)]);
+                // pos_sales has no branch_id, so a single-branch report can't attribute them —
+                // they only belong in the كل الفروع view.
+                const [rows1, rows2] = await Promise.all([
+                    fetchAllPages(buildQ1),
+                    employeeBranchId ? Promise.resolve([]) : fetchAllPages(buildQ2),
+                ]);
 
                 const mergedRevenue = [];
                 mergedRevenue.push(...rows1.map((r: any) => {
                     const svc = Array.isArray(r.selected_services) ? r.selected_services[0] : null;
                     const sale = isSaleReport(r, svc);
+                    // Audit rules: net = grandTotal − discount, collected = what was actually
+                    // received at close. A contract (آجل) invoice is billed but collects 0.
+                    const money = invoiceMoney({ status: r.status, total_price: r.total_price, pricing: svc?.pricing });
                     return {
                         id: r.report_number,
                         type: sale ? 'بيع منتج' : 'ورشة (صيانة)',
                         client: sale ? (svc?.customerName || 'عميل نقدي') : (r.vehicles?.clients?.name || 'عميل مجهول'),
                         details: sale ? saleProductsText(svc) : `${r.vehicles?.make || ''} ${r.vehicles?.model || ''}`.trim(),
                         status: r.status,
-                        total_price: Number(r.total_price || 0),
+                        total_price: money.net,
+                        received: money.received,
                         created_at: svc?.pricing?.accountedAt || r.created_at
                     };
                 }));
@@ -117,6 +139,7 @@ export default function ReportsPage() {
                     details: `دفع: ${r.payment_method}`,
                     status: 'مكتمل',
                     total_price: Number(r.total_amount || 0),
+                    received: Number(r.total_amount || 0),
                     created_at: r.created_at
                 })));
 
@@ -127,6 +150,7 @@ export default function ReportsPage() {
             } else if (activeTab === 'work-orders') {
                 const buildQuery = (from: number, to: number) => {
                     let q = supabase.from('inspection_reports').select('report_number, status, total_price, created_at, odometer_reading, order_type, selected_services, vehicles(make, model, plate_number, clients(name))');
+                    if (employeeBranchId) q = q.eq('branch_id', employeeBranchId);
                     if (!fetchWithoutDates) {
                         if (dateRange.start) q = q.gte('created_at', iraqDayStart(dateRange.start));
                         if (dateRange.end) q = q.lte('created_at', iraqDayEnd(dateRange.end));
@@ -134,7 +158,12 @@ export default function ReportsPage() {
                     return q.order('created_at', { ascending: false }).range(from, to);
                 };
 
-                const data = await fetchAllPages(buildQuery);
+                // "أوامر الصيانة فقط": product sales and invoices removed from the audit are not
+                // maintenance orders.
+                const data = (await fetchAllPages(buildQuery)).filter(r => {
+                    const svc = Array.isArray(r.selected_services) ? r.selected_services[0] : null;
+                    return !isSaleReport(r, svc) && !isAuditExcluded(svc);
+                });
                 if (data) {
                     const SERVICE_LABELS: Record<string, string> = {
                         engineOil: 'زيت المحرك', oilFilter: 'فلتر زيت المحرك',
@@ -201,12 +230,16 @@ export default function ReportsPage() {
                     }));
                 }
             } else if (activeTab === 'inventory') {
-                const data = await fetchAllPages((from, to) =>
-                    supabase.from('inventory').select('item_code, name, category, quantity, purchase_price, sell_price').order('name').range(from, to));
+                const data = await fetchAllPages((from, to) => {
+                    let q = supabase.from('inventory').select('item_code, name, category, quantity, purchase_price, sell_price');
+                    if (employeeBranchId) q = q.eq('branch_id', employeeBranchId);
+                    return q.order('name').range(from, to);
+                });
                 setReportData(data || []);
             } else if (activeTab === 'analytics') {
                 const buildQuery = (from: number, to: number) => {
-                    let q = supabase.from('inspection_reports').select('created_at, selected_services');
+                    let q = supabase.from('inspection_reports').select('created_at, order_type, selected_services');
+                    if (employeeBranchId) q = q.eq('branch_id', employeeBranchId);
                     if (!fetchWithoutDates) {
                         if (dateRange.start) q = q.gte('created_at', iraqDayStart(dateRange.start));
                         if (dateRange.end) q = q.lte('created_at', iraqDayEnd(dateRange.end));
@@ -214,7 +247,11 @@ export default function ReportsPage() {
                     return q.order('created_at', { ascending: true }).range(from, to);
                 };
 
-                const data = await fetchAllPages(buildQuery);
+                // A product sale is not a customer visit, and an audit-removed invoice is junk.
+                const data = (await fetchAllPages(buildQuery)).filter(r => {
+                    const svc = Array.isArray(r.selected_services) ? r.selected_services[0] : null;
+                    return !isSaleReport(r, svc) && !isAuditExcluded(svc);
+                });
                 if (data) {
                     const totalVisits = data.length;
                     let bookletCount = 0;
@@ -328,7 +365,8 @@ export default function ReportsPage() {
                 'العميل': row.client,
                 'التفاصيل': row.details,
                 'الحالة': row.status,
-                'الإجمالي المحصل (د.ع)': row.total_price,
+                'الصافي (د.ع)': row.total_price,
+                'المحصل (د.ع)': row.received,
                 'التاريخ': new Date(row.created_at).toLocaleDateString('en-US')
             }));
             ws = XLSX.utils.json_to_sheet(formattedData);
@@ -345,7 +383,7 @@ export default function ReportsPage() {
             ];
         } else {
             ws['!cols'] = [
-                { wch: 15 }, { wch: 18 }, { wch: 22 }, { wch: 45 }, { wch: 15 }, { wch: 18 }, { wch: 15 }
+                { wch: 15 }, { wch: 18 }, { wch: 22 }, { wch: 45 }, { wch: 15 }, { wch: 18 }, { wch: 18 }, { wch: 15 }
             ];
         }
 
@@ -357,6 +395,20 @@ export default function ReportsPage() {
         // Execute download
         XLSX.writeFile(wb, `Report_${activeTab}_${new Date().getTime()}.xlsx`);
     };
+
+    if (authLoading) {
+        return <div className="min-h-screen bg-background flex items-center justify-center"><div className="w-10 h-10 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>;
+    }
+    if (!isAuthorized) {
+        return (
+            <div className="min-h-screen bg-background flex items-center justify-center p-4 text-center font-ibm" dir="rtl">
+                <div className="glass-card p-8 rounded-3xl border border-rose-500/20 max-w-md w-full">
+                    <h2 className="text-2xl font-bold text-rose-500 mb-2">غير مصرح بالوصول</h2>
+                    <p className="text-muted-foreground">ليس لديك صلاحية لعرض السجلات والتقارير المالية.</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen p-4 md:p-8 print:p-0 font-ibm print:bg-white" dir="rtl">
@@ -580,7 +632,8 @@ export default function ReportsPage() {
                                                     <th className="p-4 text-muted-foreground font-bold">العميل والتفاصيل</th>
                                                     <th className="p-4 text-muted-foreground font-bold text-center">الحالة</th>
                                                     <th className="p-4 text-muted-foreground font-bold text-center">التاريخ</th>
-                                                    <th className="p-4 text-muted-foreground font-bold text-left">الإجمالي المحصل</th>
+                                                    <th className="p-4 text-muted-foreground font-bold text-left">الصافي</th>
+                                                    <th className="p-4 text-muted-foreground font-bold text-left">المحصل</th>
                                                 </>
                                             )}
                                         </tr>
@@ -638,7 +691,8 @@ export default function ReportsPage() {
                                                             </span>
                                                         </td>
                                                         <td className="p-4 text-muted-foreground font-mono text-xs text-center">{new Date(row.created_at).toLocaleDateString('en-GB')}</td>
-                                                        <td className="p-4 font-mono font-bold text-lg text-emerald-500 text-left">{row.total_price.toLocaleString()}</td>
+                                                        <td className="p-4 font-mono font-bold text-muted-foreground text-left">{row.total_price.toLocaleString()}</td>
+                                                        <td className="p-4 font-mono font-bold text-lg text-emerald-500 text-left">{row.received.toLocaleString()}</td>
                                                     </>
                                                 )}
                                             </tr>
@@ -652,7 +706,19 @@ export default function ReportsPage() {
                         {reportData.length > 0 && (
                             <div className="p-4 border-t border-border bg-muted/30 rounded-b-2xl flex justify-between items-center px-6">
                                 <span className="text-muted-foreground text-sm font-bold">إجمالي السجلات المستخرجة: <span className="text-foreground font-mono text-lg">{reportData.length}</span></span>
-                                {(activeTab === 'revenue' || activeTab === 'work-orders') && (
+                                {activeTab === 'revenue' && (
+                                    <span className="text-muted-foreground text-sm font-bold flex items-center gap-3">
+                                        إجمالي الصافي:
+                                        <span className="text-foreground font-mono text-lg">
+                                            {reportData.reduce((acc, row) => acc + (Number(row.total_price) || 0), 0).toLocaleString()} <span className="text-sm">د.ع</span>
+                                        </span>
+                                        الإجمالي المحصل:
+                                        <span className="text-emerald-500 font-black font-mono text-2xl bg-emerald-500/10 px-4 py-1 rounded-xl border border-emerald-500/20">
+                                            {reportData.reduce((acc, row) => acc + (Number(row.received) || 0), 0).toLocaleString()} <span className="text-sm">د.ع</span>
+                                        </span>
+                                    </span>
+                                )}
+                                {activeTab === 'work-orders' && (
                                     <span className="text-muted-foreground text-sm font-bold flex items-center gap-3">
                                         مجموع المبالغ:
                                         <span className="text-emerald-500 font-black font-mono text-2xl bg-emerald-500/10 px-4 py-1 rounded-xl border border-emerald-500/20">

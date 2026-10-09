@@ -47,9 +47,22 @@ export default function HrEmployeesPage() {
         setLoading(true);
         try {
             const { start, end } = monthRange(monthKey);
+            // A month of attendance for every employee easily passes Supabase's 1000-row cap;
+            // a single query silently dropped the rest and salaries came out too low.
+            const fetchMonthAttendance = async () => {
+                const rows: HrAttendance[] = [];
+                for (let from = 0; from < 100000; from += 1000) {
+                    const { data, error } = await (supabase as any).from("hr_attendance").select("*")
+                        .gte("date", start).lte("date", end).order("date").order("id").range(from, from + 999);
+                    if (error) return { data: null, error };
+                    rows.push(...(data || []));
+                    if (!data || data.length < 1000) break;
+                }
+                return { data: rows, error: null };
+            };
             const [empRes, attRes, brRes] = await Promise.all([
                 (supabase as any).from("hr_employees").select("*").order("full_name"),
-                (supabase as any).from("hr_attendance").select("*").gte("date", start).lte("date", end),
+                fetchMonthAttendance(),
                 supabase.from("branches").select("id, name").order("name"),
             ]);
             if (empRes.error) throw empRes.error;

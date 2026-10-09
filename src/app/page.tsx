@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { invoiceMoney } from "@/lib/contracts";
 import Link from "next/link";
 import {
     AreaChart,
@@ -120,7 +121,32 @@ export default function Home() {
                 openQuery = openQuery.eq('branch_id', employeeBranchId);
             }
 
-            const [{ data: recentReports }, { data: openReports }] = await Promise.all([recentQuery, openQuery]);
+            // Money collected = what صفحة التدقيق records as إجمالي الواصل: invoices (and sales)
+            // ACCOUNTED on that Baghdad day, counting only what was actually received — so
+            // contract (آجل) invoices add 0, audit-removed junk adds nothing, and an order that
+            // is finished but not yet accounted isn't money yet. Paged past the 1000-row cap.
+            const baghdadToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' });
+            const accountedSince = new Date(new Date(`${baghdadToday}T00:00:00+03:00`).getTime() - 6 * 86400000).toISOString();
+            const fetchAccounted = async () => {
+                const rows: { status: string; total_price: number | null; pricing: Record<string, unknown> | null }[] = [];
+                for (let from = 0; from < 50000; from += 1000) {
+                    let q = supabase
+                        .from('inspection_reports')
+                        .select('status, total_price, pricing:selected_services->0->pricing')
+                        .eq('selected_services->0->pricing->>accounted', 'true')
+                        .gte('selected_services->0->pricing->>accountedAt', accountedSince)
+                        .order('id')
+                        .range(from, from + 999);
+                    if (employeeBranchId) q = q.eq('branch_id', employeeBranchId);
+                    const { data, error } = await q;
+                    if (error) throw error;
+                    rows.push(...(data || []).map(r => ({ ...r, pricing: r.pricing as Record<string, unknown> | null })));
+                    if (!data || data.length < 1000) break;
+                }
+                return rows;
+            };
+
+            const [{ data: recentReports }, { data: openReports }, accountedRows] = await Promise.all([recentQuery, openQuery, fetchAccounted()]);
             const allReports = recentReports as any[] | null;
 
             if (allReports && openReports) {
@@ -150,27 +176,29 @@ export default function Home() {
                 const finishedToday = (r: StatRow) => r.status === 'تم الانتهاء' && isToday(r.completed_at || r.created_at);
                 const completedToday = (r: StatRow) => isCar(r) && finishedToday(r);
                 const completed = allReports.filter(completedToday).length;
-                // Money is the one figure that DOES include product sales — a sale is real
-                // income, it just isn't a car.
-                const revenue = allReports
-                    .filter(finishedToday)
-                    .reduce((sum, r) => sum + Number(r.total_price || 0), 0);
 
-                // 1. Chart Data (Fixing missing days)
-                const dayKey = (dateStr: string) => new Date(dateStr).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
+                // 1. Chart Data (Fixing missing days) — days are Baghdad days, like the audit page.
+                const dayKey = (dateStr: string) => new Date(dateStr).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', timeZone: 'Asia/Baghdad' });
                 const last7Days = Array.from({length: 7}).map((_, i) => {
                     const d = new Date();
                     d.setDate(d.getDate() - i);
-                    return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
+                    return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', timeZone: 'Asia/Baghdad' });
                 }).reverse();
 
+                // Received money per accounting day (product sales included — a sale is real
+                // income, it just isn't a car).
+                const collectedByDay: Record<string, number> = {};
+                accountedRows.forEach(r => {
+                    const at = r.pricing?.accountedAt;
+                    if (typeof at !== 'string') return;
+                    const { received } = invoiceMoney(r);
+                    collectedByDay[dayKey(at)] = (collectedByDay[dayKey(at)] || 0) + received;
+                });
+                const revenue = collectedByDay[last7Days[last7Days.length - 1]] || 0;
+
                 const chartArr = last7Days.map(dateStr => {
-                    // Same split as the cards: the order count is cars, the revenue is all money.
                     const orders = allReports.filter(r => isCar(r) && dayKey(r.created_at) === dateStr).length;
-                    const revenue = allReports
-                        .filter(r => r.status === 'تم الانتهاء' && dayKey(r.completed_at || r.created_at) === dateStr)
-                        .reduce((sum, r) => sum + Number(r.total_price || 0), 0);
-                    return { name: dateStr, orders, revenue };
+                    return { name: dateStr, orders, revenue: collectedByDay[dateStr] || 0 };
                 });
 
                 setChartData(chartArr);
@@ -251,7 +279,7 @@ export default function Home() {
                 {payload.map((e: any, i: number) => (
                     <p key={i} style={{ color: e.color, fontSize: 12, margin: 0 }}>
                         {e.dataKey === 'revenue'
-                            ? `الإيرادات: ${formatCurrency(e.value)} د.ع`
+                            ? `المحصّل (الواصل): ${formatCurrency(e.value)} د.ع`
                             : `أوامر الصيانة: ${e.value}`}
                     </p>
                 ))}
@@ -421,7 +449,7 @@ export default function Home() {
                         {/* Custom Legend */}
                         <div className="flex items-center justify-center gap-8 mb-6 text-sm">
                             <span className="flex items-center gap-2 text-muted-foreground"><div className="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]"></div> أوامر الصيانة</span>
-                            <span className="flex items-center gap-2 text-muted-foreground"><div className="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div> الإيرادات</span>
+                            <span className="flex items-center gap-2 text-muted-foreground"><div className="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div> المحصّل (الواصل)</span>
                         </div>
 
                         <div className="h-[280px] w-full" dir="ltr">

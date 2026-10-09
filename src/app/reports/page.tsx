@@ -89,10 +89,10 @@ export default function ReportsPage() {
         return () => clearTimeout(timer);
     }, [searchTerm]);
 
-    // Reset pagination when search changes
+    // Reset pagination when search or the sidebar branch changes
     useEffect(() => {
         setPage(1);
-    }, [debouncedSearch]);
+    }, [debouncedSearch, employeeBranchId]);
 
     // Throttled: this page refetched on EVERY order change anywhere in the workshop,
     // and each refetch carries the full selected_services payload for the page plus an
@@ -192,7 +192,8 @@ export default function ReportsPage() {
             }
         };
         fetchReports();
-    }, [page, debouncedSearch, refreshTrigger]);
+        // employeeBranchId: switching the sidebar branch must reload the list.
+    }, [page, debouncedSearch, refreshTrigger, employeeBranchId]);
 
     useEffect(() => {
         if (!selectedReportId) return;

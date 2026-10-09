@@ -210,6 +210,27 @@ export function parseTimeString(raw: string): string | null {
     return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
 }
 
+const TIME_MARKER = /(am|pm|ص|م|صباحا|صباحاً|مساء|مساءً)\s*$/i;
+
+/** Pasted sheets often write a 12-hour day with no ص/م: "8:30" in, "5:00" out. parseTimeString
+ *  reads the out as 05:00, which computeHours then treats as an overnight ~20.5 h shift. When
+ *  neither raw time has a marker, both look like a 12-hour clock and the out is not after the in,
+ *  read the out as PM if that gives a plausible shift (under 16 h); otherwise keep it, so a real
+ *  overnight shift still falls through to computeHours' +24h rule. Returns the (maybe) fixed out. */
+export function resolveUnmarkedCheckout(rawIn: string, rawOut: string, checkIn: string, checkOut: string): string {
+    if (TIME_MARKER.test(normalizeArabicDigits(rawIn).trim()) || TIME_MARKER.test(normalizeArabicDigits(rawOut).trim())) return checkOut;
+    const [ih, im] = checkIn.split(':').map(n => parseInt(n, 10));
+    const [oh, om] = checkOut.split(':').map(n => parseInt(n, 10));
+    // An hour above 12 means the sheet is on a 24-hour clock — nothing to guess.
+    if (ih > 12 || oh >= 12) return checkOut;
+    const inMin = ih * 60 + im;
+    const outMin = oh * 60 + om;
+    if (outMin > inMin) return checkOut;
+    const pmShift = outMin + 12 * 60 - inMin;
+    if (pmShift > 0 && pmShift < 16 * 60) return `${String(oh + 12).padStart(2, '0')}:${String(om).padStart(2, '0')}`;
+    return checkOut;
+}
+
 /** Parse various date formats (YYYY-MM-DD, DD/MM/YYYY, etc.) into "YYYY-MM-DD". */
 export function parseDateString(raw: string): string | null {
     if (!raw) return null;
@@ -279,6 +300,8 @@ export function parsePastedAttendanceTable(text: string): ParsedPastedRow[] {
         let foundDate: string | undefined;
         let foundIn: string | undefined;
         let foundOut: string | undefined;
+        let rawIn = '';
+        let rawOut = '';
         let foundStatus: string | undefined;
         const leftoverNotes: string[] = [];
 
@@ -297,9 +320,11 @@ export function parsePastedAttendanceTable(text: string): ParsedPastedRow[] {
             if (t) {
                 if (!foundIn) {
                     foundIn = t;
+                    rawIn = token;
                     continue;
                 } else if (!foundOut) {
                     foundOut = t;
+                    rawOut = token;
                     continue;
                 }
             }
@@ -321,6 +346,8 @@ export function parsePastedAttendanceTable(text: string): ParsedPastedRow[] {
             // Otherwise, keep as note
             leftoverNotes.push(token);
         }
+
+        if (foundIn && foundOut) foundOut = resolveUnmarkedCheckout(rawIn, rawOut, foundIn, foundOut);
 
         // If we found any relevant field
         if (foundDate || foundIn || foundOut || foundStatus) {

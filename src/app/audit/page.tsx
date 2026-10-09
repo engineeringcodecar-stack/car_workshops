@@ -38,6 +38,13 @@ const num = (v: any) => parseFloat(String(v ?? "").replace(/[^\d.]/g, "")) || 0;
 const isAuditExcluded = (o: any) =>
     (Array.isArray(o.selected_services) ? o.selected_services[0] : o.selected_services)?.pricing?.auditExcluded === true;
 
+// A 0 total is real (not missing) when reception discounted the whole invoice: it then saved a
+// discount and its own totalPrice "0". Only a genuinely missing total may fall back to the
+// service-line sum — otherwise a 100%-discounted car closed at full price.
+const zeroTotalOnPurpose = (totalPrice: unknown, pricing: Record<string, unknown> | null | undefined) =>
+    totalPrice !== null && totalPrice !== undefined && totalPrice !== "" &&
+    (num(pricing?.discount) > 0 || String(pricing?.totalPrice ?? "") === "0");
+
 // Format an ISO timestamp as "DD/MM/YYYY H:MM ص/م" in Iraq time (UTC+3), en digits.
 const fmtDateTime = (iso?: string) => {
     if (!iso) return "—";
@@ -95,20 +102,40 @@ export default function AuditPage() {
         const token = ++fetchToken.current;
         if (!silent) setLoading(true);
         try {
-            // 1. Fetch pending orders (status = 'تم الانتهاء', order_type !== 'sale', and accounted is not true)
-            let qPending = supabase.from('inspection_reports')
-                .select(`id, report_number, status, order_type, created_at, completed_at, total_price, odometer_reading, selected_services, branch_id, contract_id, contract:contracts(name), vehicles(make, model, plate_number, clients(name, phone)), branches(name), receptionist:receptionist_id(name)`)
-                .eq('status', 'تم الانتهاء')
-                .neq('order_type', 'sale')
-                // Not yet accounted = accounted is missing (NULL, a freshly finished order) OR not 'true'.
-                // A plain .not(...eq.true) would drop NULL rows, so newly finished orders never showed here.
-                .or('selected_services->0->pricing->>accounted.is.null,selected_services->0->pricing->>accounted.neq.true')
-                .order('completed_at', { ascending: false });
-
             const activeBranchId = (employeeBranchId && employeeRole !== 'Owner') ? employeeBranchId : selectedBranchId;
-            if (activeBranchId) {
-                qPending = qPending.eq('branch_id', activeBranchId);
-            }
+
+            // 1. Fetch pending orders (status = 'تم الانتهاء', order_type !== 'sale', and accounted is not true)
+            // Removed-from-audit rows stay unaccounted forever, so they are fetched separately:
+            // mixed in, they piled up past Supabase's 1000-row cap and pushed the oldest REAL
+            // pending invoices off the list. Real pending rows are paged in full.
+            const EXCL = 'selected_services->0->pricing->>auditExcluded';
+            const pendingQuery = () => {
+                let q = supabase.from('inspection_reports')
+                    .select(`id, report_number, status, order_type, created_at, completed_at, total_price, odometer_reading, selected_services, branch_id, contract_id, contract:contracts(name), vehicles(make, model, plate_number, clients(name, phone)), branches(name), receptionist:receptionist_id(name)`)
+                    .eq('status', 'تم الانتهاء')
+                    .neq('order_type', 'sale')
+                    // Not yet accounted = accounted is missing (NULL, a freshly finished order) OR not 'true'.
+                    // A plain .not(...eq.true) would drop NULL rows, so newly finished orders never showed here.
+                    .or('selected_services->0->pricing->>accounted.is.null,selected_services->0->pricing->>accounted.neq.true');
+                if (activeBranchId) q = q.eq('branch_id', activeBranchId);
+                return q;
+            };
+            const fetchPending = async () => {
+                const PAGE = 1000;
+                const rows: Order[] = [];
+                for (let from = 0; from < 100000; from += PAGE) {
+                    // auditExcluded is only ever set to true or removed, so "absent" = not excluded.
+                    const { data, error } = await pendingQuery().is(EXCL, null)
+                        .order('completed_at', { ascending: false }).order('id').range(from, from + PAGE - 1);
+                    if (error) return { data: null, error };
+                    rows.push(...(data || []));
+                    if (!data || data.length < PAGE) break;
+                }
+                return { data: rows, error: null };
+            };
+            // The excluded ones are only listed for the "المحذوفة" restore view — newest 1000 is plenty.
+            const qPendingExcluded = pendingQuery().eq(EXCL, 'true')
+                .order('completed_at', { ascending: false }).limit(1000);
 
             // 2. Fetch closed orders for the selected date (status = 'تم الانتهاء', and accountedAt is on the selected date)
             // Calculate UTC range matching Iraq timezone (UTC+3) explicitly, independent of client device timezone
@@ -148,13 +175,14 @@ export default function AuditPage() {
                 qSales = qSales.eq('branch_id', activeBranchId);
             }
 
-            const [resPending, resClosed, resSales] = await Promise.all([qPending, qClosed, qSales]);
+            const [resPending, resPendingExcluded, resClosed, resSales] = await Promise.all([fetchPending(), qPendingExcluded, qClosed, qSales]);
 
             // Stale response: a newer fetch (different date/branch) started after this one — bail
             // out before any setState so the wrong day's data can never land on screen.
             if (token !== fetchToken.current) return;
 
             if (resPending.error) throw resPending.error;
+            if (resPendingExcluded.error) throw resPendingExcluded.error;
             if (resClosed.error) throw resClosed.error;
             if (resSales.error) throw resSales.error;
 
@@ -166,7 +194,7 @@ export default function AuditPage() {
             };
             // Keep excluded invoices in state (so they can be shown + restored); they are hidden
             // from the normal view and the income totals, but surfaced under the "المحذوفة" toggle.
-            setPendingOrders(dedupe(resPending.data || []));
+            setPendingOrders(dedupe([...(resPending.data || []), ...(resPendingExcluded.data || [])]));
             // Daily income = accounted maintenance invoices + product sales for the day.
             setClosedOrders(dedupe([...(resClosed.data || []), ...(resSales.data || [])]));
         } catch (err: any) {
@@ -289,12 +317,12 @@ export default function AuditPage() {
     // Read the freshest selected_services (and total_price) right before a write, so a stale
     // list row (the order may have been edited elsewhere since this page fetched) can never
     // overwrite newer data.
-    const freshRowOf = async (o: Order): Promise<{ services: any[]; totalPrice: number | null }> => {
+    const freshRowOf = async (o: Order): Promise<{ services: any[]; totalPrice: number | null; rawTotal: unknown }> => {
         const { data } = await supabase.from('inspection_reports').select('selected_services, total_price').eq('id', o.id).single();
         const raw = data?.selected_services ?? o.selected_services;
         const arr = [...(Array.isArray(raw) ? raw : [raw])].filter(Boolean);
         if (arr.length === 0) arr.push({ is_paper_v2_format: true, services: {} });
-        return { services: arr, totalPrice: data ? num(data.total_price) : null };
+        return { services: arr, totalPrice: data ? num(data.total_price) : null, rawTotal: data?.total_price };
     };
     const freshServicesOf = async (o: Order): Promise<any[]> => (await freshRowOf(o)).services;
 
@@ -304,7 +332,7 @@ export default function AuditPage() {
             // Base every figure on the FRESH row, not the rendered one — the list row can
             // lag behind (silent refresh in flight, realtime throttled), and closing on a
             // stale total wrote a grandTotal that contradicted the stored total_price.
-            const { services, totalPrice: freshTotal } = await freshRowOf(o);
+            const { services, totalPrice: freshTotal, rawTotal } = await freshRowOf(o);
 
             // Money is only ever closed against a CONFIRMED fresh read — on a network
             // blip the fallback inside freshRowOf is the stale row, and closing on that
@@ -321,7 +349,10 @@ export default function AuditPage() {
                 return;
             }
 
-            const grand = (freshTotal ?? 0) || num(o.total_price) || invoiceLines(o).reduce((s, l) => s + l.price, 0);
+            // The fresh total wins even when it is 0 on purpose (fully discounted at reception);
+            // only a missing total falls back to the service lines.
+            const grand = freshTotal
+                || (zeroTotalOnPurpose(rawTotal, services[0]?.pricing) ? 0 : invoiceLines(o).reduce((s, l) => s + l.price, 0));
             const inp = getInput(o);
             const discount = num(inp.discount);
             // A contract (آجل) invoice is closed onto the contract's balance: nothing is
@@ -536,8 +567,8 @@ export default function AuditPage() {
                         // an edit after closing could have rewritten it — which is exactly how
                         // cards ended up showing مجموع 95,000, خصم 0, صافي 80,000 at once.
                         const grand = accounted
-                            ? (num(p.grandTotal) || num(o.total_price) || lineSum)
-                            : (num(o.total_price) || lineSum);
+                            ? (num(p.grandTotal) || num(o.total_price) || (String(p.grandTotal ?? '') === '0' ? 0 : lineSum))
+                            : (num(o.total_price) || (zeroTotalOnPurpose(o.total_price, p) ? 0 : lineSum));
                         const inp = getInput(o);
                         const net = grand - num(inp.discount);
                         const open = expanded === o.id;

@@ -22,7 +22,8 @@ export default function PayrollPage() {
     const { employeeBranchId, employeeRole } = useAuth();
     const [records, setRecords] = useState<PayrollRecord[]>([]);
     const [loading, setLoading] = useState(true);
-    const [month] = useState(new Date().toISOString().substring(0, 7)); // YYYY-MM
+    // YYYY-MM in Baghdad time — UTC put the first hours of a new month (00:00–03:00) in the old one.
+    const [month] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' }).substring(0, 7));
 
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
