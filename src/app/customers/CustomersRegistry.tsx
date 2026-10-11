@@ -390,24 +390,26 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
                         inspection_reports (id, report_number, status, order_type, branch_id, created_at, total_price, selected_services, branches(name))
                     )`;
 
-            let query = supabase
-                .from('clients')
-                .select(`id, name, phone, email, created_at, ${vehiclesSelect}`, { count: 'exact' });
-
-            if (cid) query = query.eq('vehicles.inspection_reports.contract_id', cid);
-            else query = query.is('vehicles.inspection_reports.contract_id', null);
+            // clients query; `scoped` adds the contract/branch/date filters on the embedded
+            // orders (with the !inner embeds they also decide which customers qualify).
+            const buildQuery = (select: string, scoped: boolean, withCount: boolean) => {
+                let q = supabase.from('clients').select(select, withCount ? { count: 'exact' } : undefined);
+                if (!scoped) return q;
+                if (cid) q = q.eq('vehicles.inspection_reports.contract_id', cid);
+                else q = q.is('vehicles.inspection_reports.contract_id', null);
+                if (activeBranchId) q = q.eq('vehicles.inspection_reports.branch_id', activeBranchId);
+                if (dateFrom) q = q.gte('vehicles.inspection_reports.created_at', `${dateFrom}T00:00:00`);
+                if (dateTo) q = q.lte('vehicles.inspection_reports.created_at', `${dateTo}T23:59:59`);
+                return q;
+            };
             const contractOnly = cid ? [] : await getContractOnlyClientIds();
             if (stale()) return;
-            if (contractOnly.length) query = query.not('id', 'in', `(${contractOnly.join(',')})`);
-            if (activeBranchId) query = query.eq('vehicles.inspection_reports.branch_id', activeBranchId);
-            if (dateFrom) query = query.gte('vehicles.inspection_reports.created_at', `${dateFrom}T00:00:00`);
-            if (dateTo) query = query.lte('vehicles.inspection_reports.created_at', `${dateTo}T23:59:59`);
-            if (searchClientIds) query = query.in('id', Array.from(searchClientIds));
-            if (routeClientIds) query = query.in('id', Array.from(routeClientIds));
+
+            let pageIds: string[];
+            let total: number;
 
             // فلتر الزائر المتكرر / متعدد الفروع — يُحسب على كل قاعدة البيانات (كل الفروع)،
             // ثم يُقسَّم لصفحات محلياً حتى لا يطول رابط الطلب. الترتيب: الأكثر زيارات أولاً.
-            let filterCount: number | null = null;
             if (visitFilter) {
                 // The full vehicles+reports scan below is expensive, so its result is
                 // cached and reused for page clicks — the key only changes when the
@@ -475,20 +477,35 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
                 if (searchClientIds) qualified = qualified.filter(id => searchClientIds!.has(id));
                 if (routeClientIds) qualified = qualified.filter(id => routeClientIds!.has(id));
                 if (contractOnly.length) qualified = qualified.filter(id => !contractOnly.includes(id));
-                filterCount = qualified.length;
-                const pageIds = qualified.slice(offset, offset + PAGE_SIZE);
-                if (pageIds.length === 0) {
-                    setClients([]);
-                    setTotalCount(filterCount);
-                    setLoading(false);
-                    return;
-                }
-                query = query.in('id', pageIds);
+                total = qualified.length;
+                pageIds = qualified.slice(offset, offset + PAGE_SIZE);
+            } else {
+                // Step 1: just this page's customer ids. Sorting all customers with every
+                // car and order payload attached (then keeping 25) ran past the database
+                // statement timeout once the data grew, and the list never opened.
+                let idQuery = buildQuery(hasReportFilter ? 'id, vehicles!inner(id, inspection_reports!inner(id))' : 'id', hasReportFilter, true);
+                if (contractOnly.length) idQuery = idQuery.not('id', 'in', `(${contractOnly.join(',')})`);
+                if (searchClientIds) idQuery = idQuery.in('id', Array.from(searchClientIds));
+                if (routeClientIds) idQuery = idQuery.in('id', Array.from(routeClientIds));
+                const { data: idRows, count, error: idError } = await idQuery
+                    .order('created_at', { ascending: false })
+                    .range(offset, offset + PAGE_SIZE - 1);
+                if (stale()) return;
+                if (idError) throw idError;
+                total = count || 0;
+                pageIds = ((idRows || []) as unknown as { id: string }[]).map(r => r.id);
+            }
+            if (pageIds.length === 0) {
+                setClients([]);
+                setTotalCount(total);
+                setLoading(false);
+                return;
             }
 
-            let finalQuery = query.order('created_at', { ascending: false });
-            if (!visitFilter) finalQuery = finalQuery.range(offset, offset + PAGE_SIZE - 1);
-            const { data, count, error } = await finalQuery;
+            // Step 2: cars and orders for those customers only.
+            const { data, error } = await buildQuery(`id, name, phone, email, created_at, ${vehiclesSelect}`, true, false)
+                .in('id', pageIds)
+                .order('created_at', { ascending: false });
             if (stale()) return;
 
             if (error) throw error;
@@ -505,7 +522,7 @@ export default function CustomersRegistry({ contract = null, topSlot = null }: {
                     contractCars = await vehiclesWithContractOrders(noOrders);
                     if (stale()) return;
                 }
-                setTotalCount(filterCount ?? (count || 0));
+                setTotalCount(total);
                 const mapped = data.map((c: any) => {
                     const allReports: any[] = [];
                     const branchIdSet = new Set<string>();
