@@ -50,11 +50,12 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
     const orderTotal = report?.total_price !== undefined && report?.total_price !== null
         ? toNum(report.total_price)
         : toNum(p.totalPrice);
-    const totalVal = isAccounted ? (toNum(p.grandTotal) || orderTotal + toNum(p.discount)) : orderTotal;
     const discountVal = toNum(p.discount);
+    // Printed as المجموع الكلي − الخصم = الباقي, so the total is the pre-discount figure:
+    // the audit's grandTotal, or the (net) order total with the discount added back.
+    const totalVal = isAccounted ? (toNum(p.grandTotal) || orderTotal + discountVal) : orderTotal + discountVal;
     const receivedVal = toNum(p.amountReceived);
-    // Reception's total is already net of its discount; the audit's grandTotal is not.
-    const netVal = isAccounted ? totalVal - discountVal : totalVal;
+    const netVal = totalVal - discountVal;
     const remainingVal = Math.max(0, netVal - receivedVal);
     const booklet = data?.booklet || {};
 
