@@ -1201,7 +1201,7 @@ export default function StandardReception({
                 // page) and the accounting state (pricing.accounted/accountedAt/grandTotal/
                 // auditExcluded from the audit page). Replacing wholesale wiped them.
                 const { data: freshRow } = await supabase.from('inspection_reports')
-                    .select('selected_services, estimated_duration').eq('id', editReportId).single();
+                    .select('selected_services, estimated_duration, total_price').eq('id', editReportId).single();
                 const existing = (Array.isArray(freshRow?.selected_services) ? freshRow!.selected_services[0] : freshRow?.selected_services) || {};
                 // A CLOSED invoice's money is frozen. Editing an accounted order used to
                 // rewrite total_price (back to reception's pre-discount figure) and stomp
@@ -1210,11 +1210,31 @@ export default function StandardReception({
                 // epoch and a net from another (e.g. مجموع 95,000, خصم 0, صافي 80,000).
                 // Services/details may still be edited; the closed amounts may not.
                 const isClosedInvoice = (existing.pricing || {}).accounted === true;
+                // ...except a corrected line price: the closed total moves by the same difference
+                // (audit discount and amount received stay), so the sheet and the contract balance
+                // follow it. Without this the sheet printed the new line under the old total.
+                let closedPricing: Record<string, unknown> = { ...(existing.pricing || {}) };
+                let closedNet: number | null = null;
+                if (isClosedInvoice) {
+                    const delta = parseFloat(computeNetTotal(services, customServices, "0"))
+                        - parseFloat(computeNetTotal(existing.services || {}, existing.customServices || [], "0"));
+                    if (delta !== 0) {
+                        const num = (x: unknown) => parseFloat(String(x ?? '').replace(/,/g, '')) || 0;
+                        const p = existing.pricing || {};
+                        const hasGrand = p.grandTotal !== undefined && p.grandTotal !== null && p.grandTotal !== "";
+                        const grand = (hasGrand ? num(p.grandTotal) : num(freshRow?.total_price) + num(p.discount)) + delta;
+                        if (grand < 0 || num(p.amountReceived) + num(p.discount) > grand) {
+                            throw new Error("الفاتورة مغلقة والمبلغ الواصل أو الخصم أكبر من المجموع الجديد. أعد فتح الطلب أولاً ثم عدّل السعر.");
+                        }
+                        closedPricing = { ...p, grandTotal: String(grand) };
+                        closedNet = grand - num(p.discount);
+                    }
+                }
                 const mergedPayload = {
                     ...existing,
                     ...paperPayload,
                     pricing: isClosedInvoice
-                        ? { ...(existing.pricing || {}) }
+                        ? closedPricing
                         : { ...(existing.pricing || {}), ...paperPayload.pricing },
                 };
                 const extraEntries = Array.isArray(freshRow?.selected_services) ? freshRow!.selected_services.slice(1) : [];
@@ -1232,8 +1252,9 @@ export default function StandardReception({
                 // with services added there). Only shift it by what this edit changed.
                 const durationDelta = loadedEstimate === null ? 0 : calculatedDuration - loadedEstimate;
                 if (durationDelta !== 0) editUpdate.estimated_duration = Math.max(1, (freshRow?.estimated_duration || 0) + durationDelta);
-                // total_price on a closed invoice is the accountant's NET — leave it alone.
+                // total_price on a closed invoice is the accountant's NET — only a repriced line moves it.
                 // Otherwise keep the services the floor appended (selected_services[1..]) in it.
+                if (closedNet !== null) editUpdate.total_price = closedNet;
                 if (!isClosedInvoice) editUpdate.total_price = parseFloat(computeNetTotal(services, customServices, discount, sumExtraEntries(freshRow?.selected_services)));
 
                 const { error: re } = await supabase.from('inspection_reports')
@@ -1247,7 +1268,9 @@ export default function StandardReception({
                     showSuccess(
                         "تم التعديل",
                         isClosedInvoice
-                            ? "تم حفظ التعديلات. الفاتورة محاسَبة ومغلقة، فالمبالغ (المجموع/الخصم/الواصل) لم تتغير."
+                            ? closedNet !== null
+                                ? `تم حفظ التعديلات. الفاتورة محاسَبة، وتم تعديل مجموعها إلى ${Number(closedPricing.grandTotal).toLocaleString('en-US')} د.ع حسب السعر الجديد.`
+                                : "تم حفظ التعديلات. الفاتورة محاسَبة ومغلقة، فالمبالغ (المجموع/الخصم/الواصل) لم تتغير."
                             : "تم حفظ التعديلات بنجاح."
                     );
                     router.push('/work-orders');
