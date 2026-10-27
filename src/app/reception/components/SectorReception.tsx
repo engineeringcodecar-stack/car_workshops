@@ -1171,22 +1171,26 @@ export default function SectorReception({
                 // leaving the invoice arithmetically impossible (مجموع/خصم/صافي from
                 // different epochs). Services may be edited; the closed amounts may not.
                 const isClosedInvoice = (existing.pricing || {}).accounted === true;
-                // ...except a corrected line price: the closed total moves by the same difference
-                // (audit discount and amount received stay), so the sheet and the contract balance
-                // follow it. Without this the sheet printed the new line under the old total.
+                // ...except the lines themselves: the closed total follows the edited lines (keeping
+                // the reception discount baked into it; audit discount and amount received stay), so
+                // the sheet and the contract balance follow a corrected price. A total left above its
+                // lines by the old frozen-edit behaviour is healed on the next save.
                 let closedPricing: Record<string, unknown> = { ...(existing.pricing || {}) };
                 let closedNet: number | null = null;
                 if (isClosedInvoice) {
-                    const delta = parseFloat(computeNetTotal(services, customServices, "0"))
-                        - parseFloat(computeNetTotal(existing.services || {}, existing.customServices || [], "0"));
-                    if (delta !== 0) {
-                        const num = (x: unknown) => parseFloat(String(x ?? '').replace(/,/g, '')) || 0;
-                        const p = existing.pricing || {};
-                        const hasGrand = p.grandTotal !== undefined && p.grandTotal !== null && p.grandTotal !== "";
-                        const grand = (hasGrand ? num(p.grandTotal) : num(freshRow?.total_price) + num(p.discount)) + delta;
-                        if (grand < 0 || num(p.amountReceived) + num(p.discount) > grand) {
-                            throw new Error("الفاتورة مغلقة والمبلغ الواصل أو الخصم أكبر من المجموع الجديد. أعد فتح الطلب أولاً ثم عدّل السعر.");
-                        }
+                    const num = (x: unknown) => parseFloat(String(x ?? '').replace(/,/g, '')) || 0;
+                    const p = existing.pricing || {};
+                    const extras = sumExtraEntries(freshRow?.selected_services);
+                    const oldLines = parseFloat(computeNetTotal(existing.services || {}, existing.customServices || [], "0", extras));
+                    const newLines = parseFloat(computeNetTotal(services, customServices, "0", extras));
+                    const hasGrand = p.grandTotal !== undefined && p.grandTotal !== null && p.grandTotal !== "";
+                    const oldGrand = hasGrand ? num(p.grandTotal) : num(freshRow?.total_price) + num(p.discount);
+                    const grand = Math.max(0, newLines - Math.max(0, oldLines - oldGrand));
+                    const fits = num(p.amountReceived) + num(p.discount) <= grand;
+                    if (grand !== oldGrand && !fits && newLines !== oldLines) {
+                        throw new Error("الفاتورة مغلقة والمبلغ الواصل أو الخصم أكبر من المجموع الجديد. أعد فتح الطلب أولاً ثم عدّل السعر.");
+                    }
+                    if (grand !== oldGrand && fits) {
                         closedPricing = { ...p, grandTotal: String(grand) };
                         closedNet = grand - num(p.discount);
                     }
