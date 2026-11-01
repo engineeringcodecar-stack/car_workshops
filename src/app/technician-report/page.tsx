@@ -5,72 +5,11 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/AuthProvider";
 import { Wrench, Loader2, Car, ClipboardCheck, Users, Printer, ChevronLeft, Search, Download, Wallet } from "lucide-react";
 import * as XLSX from 'xlsx';
+import { buildTechReport, UNSET, type OrderItem, type ReportRow } from "./report";
 
 // Supervisor rating levels, worst -> best (used for the ratings breakdown/export).
 const RATING_LEVELS = ['رديء', 'متوسط', 'جيد', 'جيد جداً', 'ممتاز'];
 
-// Service key → Arabic label (same set the audit page prints on the invoice).
-const SERVICE_LABELS: Record<string, string> = {
-    engineOil: 'زيت المحرك', oilFilter: 'فلتر زيت المحرك', airFilter: 'فلتر الهواء',
-    acFilter: 'فلتر التبريد', brakeFluid: 'زيت المكابح', coolant: 'ماء الراديتر',
-    battery: 'البطارية', engineBelts: 'قايش المحرك',
-    brakePads: 'دسكات السيارة', sparkPlugs: 'شمعات الاحتراق',
-    gearboxOil: 'زيت كير', gearboxHydraulic: 'هايدروليك الكير', gearboxFilter: 'فلتر الكير',
-    wipers: 'مساحات زجاج', windshieldFluid: 'سائل غسيل جام',
-    battery2: 'البطارية فحص دوري', batteryFilter: 'فلتر البطارية',
-    engineFlash: 'فلاش المحرك', engineCeramic: 'سيراميك محرك',
-    linerCleaner: 'منظف بطانة (جكجكة)', oilLeakPreventer: 'مانع تسريب زيت',
-    smokePreventer: 'مانع دخان', gearboxFlash: 'فلاش كير',
-    gearboxCeramic: 'سيراميك كير', gearboxAntiSlip: 'مانع انزلاق كير',
-    acCleaner: 'منظف دورة تبريد', injectorCleaner: 'منظف بخاخات',
-    fuelSystemCleaner: 'منظف نظام وقود', octaneBooster: 'محسن أوكتان',
-    additives: 'معالجات ومحسنات', cleaners: 'منظفات وأساسيات',
-    transOil: 'زيت ناقل الحركة', differentialOil: 'زيت الدبل / البكك',
-    maintenanceUnits: 'وحدات الصيانة'
-};
-
-const UNSET = "غير محدد";
-
-type ReportRow = {
-    id: string;
-    report_number: number;
-    status: string;
-    created_at: string;
-    technician_rating: string | null;
-    technician_rating_notes: string | null;
-    selected_services: any[] | null;
-    vehicles: { make: string; model: string; plate_number: string | null } | { make: string; model: string; plate_number: string | null }[] | null;
-};
-
-type ServiceLine = { label: string; price: number };
-
-type OrderItem = {
-    id: string;
-    report_number: number;
-    date: string;
-    status: string;
-    vehicle: string;
-    lines: ServiceLine[];
-    value: number;      // the car's full service value
-    techCount: number;  // technicians sharing the car (value is split between them)
-};
-
-type ServiceTally = { label: string; count: number; value: number };
-
-type TechGroup = {
-    name: string;
-    cars: number;
-    services: number;
-    completed: number;
-    value: number; // this technician's share
-    orders: OrderItem[];
-    byService: ServiceTally[];
-    ratings: Record<string, number>;
-    // Supervisor rating notes, shown in-app only (excluded from the printed report).
-    notes: { report_number: number; note: string }[];
-};
-
-const num = (v: unknown) => parseFloat(String(v ?? "").replace(/[^\d.]/g, "")) || 0;
 const money = (v: number) => Math.round(v).toLocaleString("en-US");
 
 function dateStr(d: Date) {
@@ -82,85 +21,6 @@ function dateLabel(ymd: string) {
     return `${d}/${m}/${y}`;
 }
 
-// The work a technician did on a car, with prices: services marked for change (or priced),
-// reception's custom services, and the services the floor appended (selected_services[1..]).
-function serviceLines(selected: unknown): ServiceLine[] {
-    const arr: any[] = Array.isArray(selected) ? selected : selected ? [selected] : [];
-    const payload = arr[0] || {};
-    const lines: ServiceLine[] = [];
-    Object.entries((payload.services || {}) as Record<string, any>).forEach(([k, v]) => {
-        if (!v || v.status === "جيد" || v.status === "سليم") return;
-        const price = num(v.price);
-        if (v.status === "يحتاج تغيير" || price > 0) lines.push({ label: SERVICE_LABELS[k] || k, price });
-    });
-    (Array.isArray(payload.customServices) ? payload.customServices : []).forEach((c: any) => {
-        const label = (c?.label || c?.name || "").trim();
-        if (label) lines.push({ label, price: num(c.price) });
-    });
-    arr.slice(1).forEach((e: any) => {
-        if (!e || e.is_paper_v2_format) return;
-        const label = (e.name || "").trim();
-        if (label) lines.push({ label, price: num(e.price) });
-    });
-    return lines;
-}
-
-// A car may be worked by more than one technician, written as one field joined by
-// + - / , ، & or "و" (e.g. "عباس عجل+حسن"). Split it so each technician is credited
-// individually instead of creating a shared/combined profile.
-function splitTechnicians(raw: any): string[] {
-    if (!raw) return [];
-    const parts = String(raw)
-        .split(/\s*[+\-/،,&]\s*|\s+و\s+/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-    return Array.from(new Set(parts)); // de-dupe within the same car
-}
-
-// Canonicalize an Arabic name for *matching* (not for display): unify the common
-// data-entry variants — alef/hamza forms, ة/ه, ى/ي, tatweel, diacritics, spacing.
-// Names that differ only by these collapse to the same key.
-function normalizeName(raw: string): string {
-    return (raw || "")
-        .replace(/[ً-ٰٟ]/g, "") // diacritics
-        .replace(/ـ/g, "")                 // tatweel ـ
-        .replace(/[إأآٱا]/g, "ا")               // alef variants -> ا
-        .replace(/ى/g, "ي")                     // alef maqsura -> ي
-        .replace(/ؤ/g, "و")
-        .replace(/ئ/g, "ي")
-        .replace(/ة/g, "ه")                     // ta marbuta -> ه
-        .replace(/[^ء-ي٠-٩a-z0-9 ]/gi, " ") // strip punctuation
-        .replace(/\s+/g, " ")
-        .trim()
-        .toLowerCase();
-}
-
-// Levenshtein edit distance (small inputs — names).
-function editDistance(a: string, b: string): number {
-    const m = a.length, n = b.length;
-    if (m === 0) return n;
-    if (n === 0) return m;
-    const dp = Array.from({ length: n + 1 }, (_, j) => j);
-    for (let i = 1; i <= m; i++) {
-        let prev = dp[0];
-        dp[0] = i;
-        for (let j = 1; j <= n; j++) {
-            const tmp = dp[j];
-            dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
-            prev = tmp;
-        }
-    }
-    return dp[n];
-}
-
-// Two normalized names are "the same technician" when they're identical or within
-// a small typo distance. Short names require an exact match to avoid false merges.
-function namesAreClose(a: string, b: string): boolean {
-    if (a === b) return true;
-    const maxLen = Math.max(a.length, b.length);
-    if (maxLen < 4) return false;
-    return 1 - editDistance(a, b) / maxLen >= 0.84;
-}
 
 export default function TechnicianReportPage() {
     const { employeeRole, employeeBranchId, allowedPages, loading: authLoading } = useAuth();
@@ -176,7 +36,12 @@ export default function TechnicianReportPage() {
     const [loading, setLoading] = useState(true);
     const [selectedTech, setSelectedTech] = useState<string | null>(null);
     const [techSearch, setTechSearch] = useState("");
-    const [printMode, setPrintMode] = useState<"summary" | "detail" | null>(null);
+    const [loadError, setLoadError] = useState("");
+    // The print layout stays rendered (hidden on screen); each click bumps the nonce so the
+    // same button prints again even if the browser never fired afterprint.
+    const [printMode, setPrintMode] = useState<"summary" | "detail">("summary");
+    const [printNonce, setPrintNonce] = useState(0);
+    const printAs = (mode: "summary" | "detail") => { setPrintMode(mode); setPrintNonce((n) => n + 1); };
 
     const [branches, setBranches] = useState<{ id: string; name: string }[]>([]);
     // "" = كل الفروع. Follows the sidebar: on "all branches" it used to force the first branch.
@@ -200,10 +65,13 @@ export default function TechnicianReportPage() {
     useEffect(() => {
         if (authLoading || !isAuthorized) return;
         if (!branchesReady || !rangeValid) return;
-        setSelectedTech(null);
+        // Typing a date fires one fetch per keystroke; only the latest may land, or a slower
+        // earlier one would overwrite it with another period's numbers.
+        let cancelled = false;
 
         const fetchRows = async () => {
             setLoading(true);
+            setLoadError("");
             const [fy, fm, fd] = dateFrom.split("-").map(Number);
             const [ty, tm, td] = dateTo.split("-").map(Number);
             const start = new Date(fy, fm - 1, fd);
@@ -222,157 +90,33 @@ export default function TechnicianReportPage() {
                     .gte("created_at", start.toISOString())
                     .lt("created_at", end.toISOString())
                     .order("created_at", { ascending: false })
+                    .order("id") // stable tie-break so pages never repeat or skip a row
                     .range(from, from + PAGE_SIZE - 1);
 
                 // Staff locked to a branch always see their own; others see the picked one or all.
                 const branchFilter = canPickBranch ? selectedBranchId : employeeBranchId;
                 if (branchFilter) query = query.eq("branch_id", branchFilter);
 
-                const { data } = await query;
-                if (data && data.length) all.push(...(data as any));
+                const { data, error } = await query;
+                if (cancelled) return;
+                // A failed page must not pass for the whole period — partial totals look real.
+                if (error) {
+                    setRows([]);
+                    setLoadError("تعذّر تحميل التقرير كاملاً. جرّب فترة أقصر أو أعد المحاولة.");
+                    setLoading(false);
+                    return;
+                }
+                if (data && data.length) all.push(...(data as unknown as ReportRow[]));
                 if (!data || data.length < PAGE_SIZE) break;
             }
             setRows(all);
             setLoading(false);
         };
         fetchRows();
+        return () => { cancelled = true; };
     }, [dateFrom, dateTo, rangeValid, selectedBranchId, employeeBranchId, authLoading, isAuthorized, branchesReady, canPickBranch]);
 
-    const { groups, totalCars, totalServices, totalValue } = useMemo(() => {
-        type Acc = {
-            cars: number; services: number; completed: number; value: number; orders: OrderItem[];
-            byService: Map<string, ServiceTally>; spellings: Map<string, number>; ratings: Map<string, number>;
-            notes: { report_number: number; note: string }[];
-        };
-        const newAcc = (): Acc => ({ cars: 0, services: 0, completed: 0, value: 0, orders: [], byService: new Map(), spellings: new Map(), ratings: new Map(), notes: [] });
-        const byKey = new Map<string, Acc>(); // keyed by normalized name
-        let totalCars = 0;
-        let totalServices = 0;
-        let totalValue = 0;
-
-        for (const r of rows) {
-            if (r.status === "ملغى") continue;
-            const payload = Array.isArray(r.selected_services) ? r.selected_services[0] : r.selected_services;
-            // An invoice removed from صفحة التدقيق is junk — no technician gets credit for it.
-            if (payload?.pricing?.auditExcluded === true) continue;
-            const v = Array.isArray(r.vehicles) ? r.vehicles[0] : r.vehicles;
-            const lines = serviceLines(r.selected_services);
-            const carValue = lines.reduce((s, l) => s + l.price, 0);
-            // Totals are per actual car (a shared car is still one car / its services counted once).
-            totalCars += 1;
-            totalServices += lines.length;
-            totalValue += carValue;
-
-            // Multi-technician: prefer the structured array (each tech carries its OWN rating);
-            // fall back to the old joined name + single column rating for legacy orders.
-            const techEntries: { name: string; rating: string; note: string }[] = Array.isArray(payload?.technicians) && payload.technicians.length
-                ? payload.technicians
-                    .map((t: any) => ({ name: (t?.name || "").trim(), rating: t?.rating || "", note: (t?.notes || "").trim() }))
-                    .filter((t: { name: string }) => t.name)
-                : splitTechnicians(payload?.technicianName).map((n: string, i: number) => ({
-                    name: n, rating: r.technician_rating || "",
-                    // legacy single-column note belongs to the first technician
-                    note: i === 0 ? (r.technician_rating_notes || "").trim() : "",
-                }));
-            const entries = techEntries.length ? techEntries : [{ name: UNSET, rating: "", note: "" }];
-
-            // Near-duplicate spellings on the same card collapse to one credit.
-            const uniq = new Map<string, typeof entries[number]>();
-            for (const entry of entries) {
-                const key = entry.name === UNSET ? UNSET : normalizeName(entry.name);
-                if (key && !uniq.has(key)) uniq.set(key, entry);
-            }
-            // A shared car's value is split equally, so the technicians' values add up to the total.
-            const share = 1 / Math.max(1, uniq.size);
-            const order: OrderItem = {
-                id: r.id,
-                report_number: r.report_number,
-                date: new Date(r.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }),
-                status: r.status,
-                vehicle: v ? `${v.make || ""} ${v.model || ""}${v.plate_number ? ` (${v.plate_number})` : ""}`.trim() : "—",
-                lines,
-                value: carValue,
-                techCount: uniq.size,
-            };
-
-            uniq.forEach((entry, key) => {
-                let a = byKey.get(key);
-                if (!a) { a = newAcc(); byKey.set(key, a); }
-                a.cars += 1;
-                a.services += lines.length;
-                a.value += carValue * share;
-                if (r.status === "تم الانتهاء") a.completed += 1;
-                a.orders.push(order);
-                for (const l of lines) {
-                    const t = a.byService.get(l.label) || { label: l.label, count: 0, value: 0 };
-                    t.count += 1;
-                    t.value += l.price * share;
-                    a.byService.set(l.label, t);
-                }
-                if (entry.rating) a.ratings.set(entry.rating, (a.ratings.get(entry.rating) || 0) + 1);
-                if (entry.note) a.notes.push({ report_number: r.report_number, note: entry.note });
-                if (entry.name !== UNSET) a.spellings.set(entry.name, (a.spellings.get(entry.name) || 0) + 1);
-            });
-        }
-
-        // Cluster near-duplicate normalized keys (typos / different letters) via union-find.
-        const keys = [...byKey.keys()];
-        const parent = new Map<string, string>();
-        keys.forEach((k) => parent.set(k, k));
-        const find = (x: string): string => {
-            while (parent.get(x) !== x) {
-                parent.set(x, parent.get(parent.get(x)!)!);
-                x = parent.get(x)!;
-            }
-            return x;
-        };
-        const real = keys.filter((k) => k !== UNSET);
-        for (let i = 0; i < real.length; i++) {
-            for (let j = i + 1; j < real.length; j++) {
-                if (namesAreClose(real[i], real[j])) parent.set(find(real[i]), find(real[j]));
-            }
-        }
-
-        // Merge each cluster's tallies; display the most-used original spelling.
-        const clusters = new Map<string, Acc>();
-        for (const k of keys) {
-            const root = k === UNSET ? UNSET : find(k);
-            let c = clusters.get(root);
-            if (!c) { c = newAcc(); clusters.set(root, c); }
-            const a = byKey.get(k)!;
-            c.cars += a.cars;
-            c.services += a.services;
-            c.completed += a.completed;
-            c.value += a.value;
-            c.orders.push(...a.orders);
-            c.notes.push(...a.notes);
-            a.byService.forEach((t, label) => {
-                const ct = c!.byService.get(label) || { label, count: 0, value: 0 };
-                ct.count += t.count;
-                ct.value += t.value;
-                c!.byService.set(label, ct);
-            });
-            a.spellings.forEach((cnt, sp) => c!.spellings.set(sp, (c!.spellings.get(sp) || 0) + cnt));
-            a.ratings.forEach((cnt, rt) => c!.ratings.set(rt, (c!.ratings.get(rt) || 0) + cnt));
-        }
-
-        const groups: TechGroup[] = [...clusters.entries()].map(([root, c]) => {
-            let name = UNSET;
-            if (root !== UNSET) {
-                let best = "", bestN = -1;
-                c.spellings.forEach((cnt, sp) => { if (cnt > bestN) { bestN = cnt; best = sp; } });
-                name = best || root;
-            }
-            return {
-                name, cars: c.cars, services: c.services, completed: c.completed, value: c.value,
-                orders: c.orders.sort((a, b) => b.report_number - a.report_number),
-                byService: [...c.byService.values()].sort((a, b) => b.value - a.value || b.count - a.count),
-                ratings: Object.fromEntries(c.ratings), notes: c.notes,
-            };
-        }).sort((a, b) => b.value - a.value || b.cars - a.cars);
-
-        return { groups, totalCars, totalServices, totalValue };
-    }, [rows]);
+    const { groups, totalCars, totalServices, totalValue } = useMemo(() => buildTechReport(rows), [rows]);
 
     const profile = selectedTech ? groups.find((g) => g.name === selectedTech) || null : null;
     const visibleGroups = useMemo(() => {
@@ -383,20 +127,17 @@ export default function TechnicianReportPage() {
 
     // Render the chosen print layout first, then open the print dialog.
     useEffect(() => {
-        if (!printMode) return;
+        if (printNonce === 0) return;
         const t = setTimeout(() => window.print(), 50);
-        const done = () => setPrintMode(null);
-        window.addEventListener("afterprint", done, { once: true });
-        return () => { clearTimeout(t); window.removeEventListener("afterprint", done); };
-    }, [printMode]);
+        return () => clearTimeout(t);
+    }, [printNonce]);
 
     const downloadExcel = () => {
         if (groups.length === 0) return;
         const sheet = (aoa: (string | number)[][], cols: number[]) => {
             const ws = XLSX.utils.aoa_to_sheet(aoa);
             ws["!cols"] = cols.map((wch) => ({ wch }));
-            if (!ws["!opts"]) ws["!opts"] = {};
-            (ws as any)["!opts"].RTL = true;
+            (ws as Record<string, unknown>)["!opts"] = { RTL: true };
             return ws;
         };
         const wb = XLSX.utils.book_new();
@@ -492,6 +233,8 @@ export default function TechnicianReportPage() {
                     <div className="glass-card p-10 text-center text-rose-400 rounded-3xl border border-rose-500/20">اختر فترة صحيحة: تاريخ «من» لازم يكون قبل أو يساوي تاريخ «إلى».</div>
                 ) : loading ? (
                     <div className="p-20 text-center"><Loader2 className="animate-spin text-rose-500 w-10 h-10 mx-auto" /></div>
+                ) : loadError ? (
+                    <div className="glass-card p-10 text-center text-rose-400 rounded-3xl border border-rose-500/20">{loadError}</div>
                 ) : profile ? (
                     /* ---------- DETAIL (one technician) ---------- */
                     <div className="space-y-6">
@@ -499,7 +242,7 @@ export default function TechnicianReportPage() {
                             <button onClick={() => setSelectedTech(null)} className="flex items-center gap-2 px-4 py-2 bg-muted hover:bg-muted/80 text-foreground rounded-xl border border-border transition-all text-sm font-bold">
                                 <ChevronLeft size={16} /> رجوع للملخص
                             </button>
-                            <button onClick={() => setPrintMode("detail")} className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl transition-all text-sm font-bold shadow-lg shadow-rose-500/20">
+                            <button onClick={() => printAs("detail")} className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl transition-all text-sm font-bold shadow-lg shadow-rose-500/20">
                                 <Printer size={16} /> طباعة التفصيلي
                             </button>
                         </div>
@@ -651,10 +394,10 @@ export default function TechnicianReportPage() {
                                 <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" size={18} />
                                 <input type="text" value={techSearch} onChange={(e) => setTechSearch(e.target.value)} placeholder="بحث عن فني بالاسم..." className="input-field w-full" style={{ paddingRight: "3rem" }} />
                             </div>
-                            <button onClick={() => setPrintMode("summary")} disabled={visibleGroups.length === 0} className="flex items-center justify-center gap-2 px-4 py-2.5 bg-muted hover:bg-muted/80 disabled:opacity-50 text-foreground rounded-xl border border-border text-sm font-bold">
+                            <button onClick={() => printAs("summary")} disabled={visibleGroups.length === 0} className="flex items-center justify-center gap-2 px-4 py-2.5 bg-muted hover:bg-muted/80 disabled:opacity-50 text-foreground rounded-xl border border-border text-sm font-bold">
                                 <Printer size={16} /> طباعة الملخص
                             </button>
-                            <button onClick={() => setPrintMode("detail")} disabled={visibleGroups.length === 0} className="flex items-center justify-center gap-2 px-4 py-2.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl text-sm font-bold shadow-lg shadow-rose-500/20">
+                            <button onClick={() => printAs("detail")} disabled={visibleGroups.length === 0} className="flex items-center justify-center gap-2 px-4 py-2.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl text-sm font-bold shadow-lg shadow-rose-500/20">
                                 <Printer size={16} /> طباعة التفصيلي
                             </button>
                         </div>
@@ -700,7 +443,7 @@ export default function TechnicianReportPage() {
             </div>
 
             {/* ---------- PRINT LAYOUT (only on print) ---------- */}
-            {printMode && (
+            {rangeValid && !loading && !loadError && printGroups.length > 0 && (
                 <div className="hidden print:block text-black bg-white p-8" dir="rtl" style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}>
                     <div className="flex items-center justify-between border-b-2 border-black pb-4 mb-6">
                         <div>
