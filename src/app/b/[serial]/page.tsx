@@ -692,9 +692,9 @@ export default function PublicBookletPage() {
                         <span className="font-bold text-sm text-foreground flex items-center gap-1.5">
                             <User size={14} className="text-emerald-400 shrink-0" /> قسم المتابعة والعلاقات
                         </span>
-                        <a href="tel:+964788779803" dir="ltr"
+                        <a href="tel:+9647887779803" dir="ltr"
                             className="inline-flex items-center gap-2 bg-emerald-500/10 hover:bg-emerald-600 hover:text-white text-emerald-400 border border-emerald-500/30 rounded-xl px-4 py-2 text-sm font-bold font-mono transition-colors">
-                            <Phone size={14} /> +964 788 77 9803
+                            <Phone size={14} /> +964 788 777 9803
                         </a>
                     </div>
                 </div>
