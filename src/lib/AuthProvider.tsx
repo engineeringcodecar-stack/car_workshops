@@ -198,7 +198,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!activeSession && current !== "/login") {
             router.push("/login");
         } else if (activeSession && current === "/login") {
-            router.push("/");
+            router.push("/dashboard");
         }
     }, [router]);
 

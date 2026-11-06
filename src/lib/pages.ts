@@ -6,7 +6,7 @@
 export type AppPage = { key: string; href: string; label: string };
 
 export const APP_PAGES: AppPage[] = [
-    { key: 'dashboard', href: '/', label: 'لوحة التحكم الرئيسية' },
+    { key: 'dashboard', href: '/dashboard', label: 'لوحة التحكم الرئيسية' },
     { key: 'reception', href: '/reception', label: 'الاستقبال وأوامر العمل' },
     { key: 'suggestions', href: '/suggestions', label: 'إدارة الاقتراحات' },
     { key: 'work-orders', href: '/work-orders', label: 'ساحة الورشة (العمل الحي)' },

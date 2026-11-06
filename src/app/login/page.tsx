@@ -35,7 +35,7 @@ export default function LoginPage() {
                 : "تعذر الاتصال بالخادم — تحقق من الإنترنت وحاول مجدداً");
             setLoading(false);
         } else {
-            router.push("/");
+            router.push("/dashboard");
             router.refresh();
         }
     };

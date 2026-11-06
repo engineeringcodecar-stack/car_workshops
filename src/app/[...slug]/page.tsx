@@ -30,7 +30,7 @@ export default async function MockModulePage({ params }: { params: Promise<{ slu
 
                 <div className="pt-8">
                     <Link 
-                        href="/" 
+                        href="/dashboard" 
                         className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-white/5 hover:bg-white/10 border border-border text-foreground rounded-xl transition-all font-medium text-sm group"
                     >
                         العودة إلى لوحة التحكم

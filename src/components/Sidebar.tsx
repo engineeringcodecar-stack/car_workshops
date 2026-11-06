@@ -70,7 +70,7 @@ export function Sidebar() {
         {
             title: "العمليات (Operations)",
             items: [
-                { href: "/", label: t.common.dashboard || "لوحة التحكم", icon: <LayoutDashboard size={20} /> },
+                { href: "/dashboard", label: t.common.dashboard || "لوحة التحكم", icon: <LayoutDashboard size={20} /> },
                 // المساعد الذكي مخفي مؤقتاً من القائمة (الكود جاهز — يُعاد تفعيله بإزالة التعليق).
                 // { href: "/assistant", label: "المساعد الذكي", icon: <Sparkles size={20} />, roles: ["Owner", "Admin"] },
                 { href: "/reception", label: "الاستقبال وأوامر العمل", icon: <ClipboardList size={20} /> },
@@ -151,7 +151,7 @@ export function Sidebar() {
             }
 
             // Legacy fallback for accounts saved before per-tab permissions existed.
-            if (item.href === '/') return !!permissionDashboard;
+            if (item.href === '/dashboard') return !!permissionDashboard;
             if (item.href === '/assistant') return false;
             if (item.href === '/reception') return !!permissionReception;
             if (item.href === '/work-orders') return !!permissionWorkOrders;
