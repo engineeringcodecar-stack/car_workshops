@@ -58,8 +58,8 @@ function body(lang: Lang) {
 <header class="hero has-ag">
     <div class="hero-par"><div class="hero-mouse">
         <picture>
-            <source media="(max-width: 700px)" srcset="/site/car-tall.webp" width="900" height="1200">
-            <img src="/site/car-wide.webp" width="1672" height="941" alt="${esc(c.hero.alt)}" fetchpriority="high" decoding="async">
+            <source media="(max-width: 700px)" srcset="/site/hero-tall.webp" width="900" height="1200">
+            <img src="/site/hero-wide.webp" srcset="/site/hero-wide.webp 1672w, /site/hero-wide-2560.webp 2560w" sizes="max(104vw, 192vh)" width="1672" height="941" alt="${esc(c.hero.alt)}" fetchpriority="high" decoding="async">
         </picture>
     </div></div>
     <div class="hero-shade"></div><div class="hero-fade"></div><div class="hero-lines"></div>
@@ -164,7 +164,7 @@ function body(lang: Lang) {
         <div class="ins-body">
             <div data-reveal="1" class="ins-left">
                 <div class="stage">
-                    <img class="stage-car" src="/site/car-wide.webp" width="1672" height="941" alt="${esc(c.inspect.alt)}" loading="lazy" decoding="async">
+                    <img class="stage-car" src="/site/hero-wide.webp" width="1672" height="941" alt="${esc(c.inspect.alt)}" loading="lazy" decoding="async">
                     <div class="stage-vig"></div>
                     <img class="bg stage-bp" src="/site/blueprint.svg" alt="" loading="lazy">
                     <div class="stage-scan"></div>
