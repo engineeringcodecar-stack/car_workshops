@@ -3,6 +3,7 @@ Allow: /$
 Allow: /en$
 Allow: /site/
 Allow: /logo.png
+Allow: /api/daily-customers
 Disallow: /
 
 Sitemap: https://www.handsacars.com/sitemap.xml
