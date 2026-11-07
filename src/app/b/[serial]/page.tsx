@@ -669,7 +669,7 @@ export default function PublicBookletPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         {([
                             { name: "فرع القطاع", address: "سايدين مستشفى الصدر", phone: "07766331112" },
-                            { name: "فرع الصناعية", address: "شارع البكرات", phone: "07766331113" },
+                            { name: "فرع الصناعية", address: "شارع المعارض", phone: "07766331113" },
                             { name: "فرع المجر", address: "داخل محطة انوار المجر", phone: "07766331114" },
                             { name: "فرع الكراج", address: "العمارة داخل كراج العمارة الموحد", phone: "" },
                         ] as { name: string; address: string; phone: string }[]).map((b) => (
