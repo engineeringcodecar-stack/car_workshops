@@ -22,8 +22,9 @@ const APP_SECTIONS = new Set([
 const NOT_FOUND_PAGE = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>الصفحة غير موجودة</title><style>body{margin:0;min-height:100vh;display:grid;place-content:center;gap:14px;text-align:center;padding:24px;background:#08090B;color:#F5F5F4;font-family:system-ui,sans-serif}h1{margin:0;font-size:28px}p{margin:0;color:#A9ADB4}a{color:#E5444E}</style><h1>الصفحة غير موجودة</h1><p dir="ltr">Page not found</p><p><a href="/">الصفحة الرئيسية</a></p></html>`;
 
 function isPublicPath(pathname: string): boolean {
-    // `/en` is the English version of the public site.
-    return pathname === "/en" || PUBLIC_PREFIXES.some(
+    // `/en` is the English version of the public site and `/ar` serves the Arabic one
+    // without the staff redirect that "/" has, so the language switch works signed in.
+    return pathname === "/en" || pathname === "/ar" || PUBLIC_PREFIXES.some(
         (prefix) => pathname === prefix || pathname.startsWith(prefix)
     );
 }
