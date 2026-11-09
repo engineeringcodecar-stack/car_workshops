@@ -110,9 +110,15 @@ html[data-seen] .intro{display:none}
 .hero{position:relative;min-height:max(100svh,640px);overflow:hidden;isolation:isolate;background:#08090B}
 .hero-par{position:absolute;inset:-4% -2%;z-index:-3;will-change:transform}
 .hero-mouse{position:absolute;inset:0}
-/* The picture is held still: the video's own smoke and light are the only movement in it. */
+/* The picture is held still: the video's own smoke and light are the only movement in it.
+   The video is softer than the still, so a mask shows it only where the clip moves (smoke,
+   light); the car and the floor stay the sharp still underneath. The mask is fitted like the
+   video (cover, same position), so the two always line up.
+   The video's box is 1px smaller than the image's on every side: browsers time the page by
+   its largest element (LCP), and on phones an equal-sized video took that over from the
+   image and reported the page as loaded only when the clip started. */
 .hero-mouse img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;max-width:none}
-.hero-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity 1.6s ease;pointer-events:none}
+.hero-video{position:absolute;inset:1px;width:calc(100% - 2px);height:calc(100% - 2px);object-fit:cover;opacity:0;transition:opacity 1s ease;pointer-events:none;-webkit-mask:url(/site/hero-mask-wide.webp) center/cover no-repeat;mask:url(/site/hero-mask-wide.webp) center/cover no-repeat}
 .hero-video.on{opacity:1}
 .hero-shade{position:absolute;inset:0;z-index:-2;background:linear-gradient(90deg,rgba(8,9,11,.92) 0%,rgba(8,9,11,.6) 34%,rgba(8,9,11,0) 62%)}
 .hero-fade{position:absolute;inset:0;z-index:-1;background:linear-gradient(0deg,#08090B 0%,rgba(8,9,11,0) 28%),linear-gradient(180deg,rgba(8,9,11,.7) 0%,rgba(8,9,11,0) 22%)}
@@ -472,6 +478,10 @@ html[dir=rtl] .foot-cols a[data-out]{text-align:right}
 .prods{grid-template-columns:repeat(2,minmax(0,1fr))}
 .proof-in{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+/* Same breakpoint as the hero <picture> and the tall clip */
+@media(max-width:700px){
+.hero-video{-webkit-mask-image:url(/site/hero-mask-tall.webp);mask-image:url(/site/hero-mask-tall.webp)}
+}
 @media(max-width:639px){
 .nav-cta{display:none}
 .br-tab{flex:1 1 calc(50% - 1px);padding:18px 16px}
@@ -484,6 +494,7 @@ html[dir=rtl] .foot-cols a[data-out]{text-align:right}
 .hero-cta{flex-wrap:nowrap}
 .hero-cta .btn{flex:1 1 0;min-width:0;justify-content:center;padding-inline:12px;white-space:nowrap}
 .hero-mouse img,.hero-video{object-position:60% center}
+.hero-video{-webkit-mask-position:60% center;mask-position:60% center}
 .hero-shade{background:linear-gradient(0deg,rgba(8,9,11,.96) 0%,rgba(8,9,11,.6) 45%,rgba(8,9,11,.1) 70%)}
 .hero-inner{justify-content:flex-end;align-items:stretch!important;padding-bottom:96px}
 .hero-copy{max-width:none}

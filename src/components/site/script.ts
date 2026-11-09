@@ -28,10 +28,11 @@ function frame(){
 function tick(){if(!raf)raf=requestAnimationFrame(frame)}
 w.addEventListener("scroll",tick,{passive:true});w.addEventListener("resize",tick);frame();
 
-/* Hero video: starts after the page has loaded, and never with data saver or a 2G
-   connection. It also plays with reduced motion (the owner's choice): the camera is fixed
-   and the picture does not move. Phones get the tall clip, matching the <picture>
-   breakpoint. The still image stays underneath, so nothing changes if it never plays. */
+/* Hero video: starts as soon as the hero image itself has loaded, so it never competes
+   with it, and never with data saver or a 2G connection. It also plays with reduced motion
+   (the owner's choice): the camera is fixed and the picture does not move. Phones get the
+   tall clip, matching the <picture> breakpoint. The still image stays underneath, so
+   nothing changes if it never plays. */
 var hv=$(".hero-video"),net=navigator.connection||{};
 if(hv&&!net.saveData&&!/2g/.test(net.effectiveType||"")){
   var hvTall=matchMedia("(max-width: 700px)");
@@ -41,7 +42,8 @@ if(hv&&!net.saveData&&!/2g/.test(net.effectiveType||"")){
     hv.addEventListener("playing",function(){hv.classList.add("on")},{once:true});
     hv.src=hvTall.matches?hv.dataset.srcTall:hv.dataset.src;hvPlay();
   };
-  if(d.readyState=="complete")setTimeout(hvStart,300);else w.addEventListener("load",function(){setTimeout(hvStart,300)});
+  var hvImg=$(".hero-mouse img");
+  if(hvImg.complete)hvStart();else{hvImg.addEventListener("load",hvStart,{once:true});hvImg.addEventListener("error",hvStart,{once:true})}
   if(hvTall.addEventListener)hvTall.addEventListener("change",function(){if(hv.src)hvStart()});
   if("IntersectionObserver"in w)new IntersectionObserver(function(es){if(hv.src)es[0].isIntersecting?hvPlay():hv.pause()}).observe($(".hero"));
 }
