@@ -66,7 +66,7 @@ function body(lang: Lang) {
             <source media="(max-width: 700px)" srcset="/site/hero-tall.webp" width="900" height="1200">
             <img src="/site/hero-wide.webp" srcset="/site/hero-wide.webp 1672w, /site/hero-wide-2560.webp 2560w" sizes="max(104vw, 192vh)" width="1672" height="941" alt="${esc(c.hero.alt)}" fetchpriority="high" decoding="async">
         </picture>
-        <video class="hero-video" muted loop playsinline disablepictureinpicture preload="none" aria-hidden="true" tabindex="-1" data-src="/site/hero-loop.mp4" data-src-tall="/site/hero-loop-tall.mp4"></video>
+        <video class="hero-video" muted loop playsinline disablepictureinpicture preload="none" aria-hidden="true" tabindex="-1" data-src="/site/hero-loop-v2.mp4" data-src-tall="/site/hero-loop-tall-v2.mp4"></video>
     </div></div>
     <div class="hero-shade"></div><div class="hero-fade"></div><div class="hero-lines"></div>
     <div class="hero-inner"><div class="hero-copy">

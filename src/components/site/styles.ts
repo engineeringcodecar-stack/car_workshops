@@ -118,7 +118,7 @@ html[data-seen] .intro{display:none}
    its largest element (LCP), and on phones an equal-sized video took that over from the
    image and reported the page as loaded only when the clip started. */
 .hero-mouse img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;max-width:none}
-.hero-video{position:absolute;inset:1px;width:calc(100% - 2px);height:calc(100% - 2px);object-fit:cover;opacity:0;transition:opacity 1s ease;pointer-events:none;-webkit-mask:url(/site/hero-mask-wide.webp) center/cover no-repeat;mask:url(/site/hero-mask-wide.webp) center/cover no-repeat}
+.hero-video{position:absolute;inset:1px;width:calc(100% - 2px);height:calc(100% - 2px);object-fit:cover;opacity:0;transition:opacity 1s ease;pointer-events:none;-webkit-mask:url(/site/hero-mask-wide-v2.webp) center/cover no-repeat;mask:url(/site/hero-mask-wide-v2.webp) center/cover no-repeat}
 .hero-video.on{opacity:1}
 .hero-shade{position:absolute;inset:0;z-index:-2;background:linear-gradient(90deg,rgba(8,9,11,.92) 0%,rgba(8,9,11,.6) 34%,rgba(8,9,11,0) 62%)}
 .hero-fade{position:absolute;inset:0;z-index:-1;background:linear-gradient(0deg,#08090B 0%,rgba(8,9,11,0) 28%),linear-gradient(180deg,rgba(8,9,11,.7) 0%,rgba(8,9,11,0) 22%)}
@@ -480,7 +480,7 @@ html[dir=rtl] .foot-cols a[data-out]{text-align:right}
 }
 /* Same breakpoint as the hero <picture> and the tall clip */
 @media(max-width:700px){
-.hero-video{-webkit-mask-image:url(/site/hero-mask-tall.webp);mask-image:url(/site/hero-mask-tall.webp)}
+.hero-video{-webkit-mask-image:url(/site/hero-mask-tall-v2.webp);mask-image:url(/site/hero-mask-tall-v2.webp)}
 }
 @media(max-width:639px){
 .nav-cta{display:none}
