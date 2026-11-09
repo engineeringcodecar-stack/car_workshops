@@ -28,18 +28,20 @@ function frame(){
 function tick(){if(!raf)raf=requestAnimationFrame(frame)}
 w.addEventListener("scroll",tick,{passive:true});w.addEventListener("resize",tick);frame();
 
-/* Hero follows the pointer */
+/* Hero follows the pointer: mouse only, and only in the wide layout, where the picture
+   is larger than the hero and has room to shift without showing an edge */
 var mouse=$(".hero-mouse");
-if(!rm)$(".hero").addEventListener("mousemove",function(e){
+if(!rm&&matchMedia("(hover: hover) and (pointer: fine) and (min-width: 640px)").matches)$(".hero").addEventListener("mousemove",function(e){
   var r=e.currentTarget.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;
   mouse.style.transform="translate3d("+x*-18+"px,"+y*-12+"px,0)";
 });
 
-/* Hero video: starts after the page has loaded, and never with reduced motion, data saver
-   or a 2G connection. Phones get the tall clip, matching the <picture> breakpoint. The still
-   image stays underneath, so nothing changes if it never plays. */
+/* Hero video: starts after the page has loaded, and never with data saver or a 2G
+   connection. It also plays with reduced motion (the owner's choice): the camera is fixed
+   and the picture does not move. Phones get the tall clip, matching the <picture>
+   breakpoint. The still image stays underneath, so nothing changes if it never plays. */
 var hv=$(".hero-video"),net=navigator.connection||{};
-if(hv&&!rm&&!net.saveData&&!/2g/.test(net.effectiveType||"")){
+if(hv&&!net.saveData&&!/2g/.test(net.effectiveType||"")){
   var hvTall=matchMedia("(max-width: 700px)");
   var hvPlay=function(){var p=hv.play();if(p&&p.catch)p.catch(function(){})};
   var hvStart=function(){

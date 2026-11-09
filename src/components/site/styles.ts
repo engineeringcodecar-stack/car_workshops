@@ -28,7 +28,6 @@ h1,h2,h3,p{margin:0}
 h2{font-family:var(--h);font-weight:800;font-size:clamp(32px,4.4vw,60px);line-height:1.2}
 i{font-style:normal}
 
-@keyframes hc-dolly{0%{transform:scale(1.035) translate3d(-.4%,0,0)}100%{transform:scale(1.09) translate3d(.3%,-.5%,0)}}
 @keyframes hc-pulse{0%{transform:scale(1);opacity:.75}100%{transform:scale(2.8);opacity:0}}
 @keyframes hc-scan{0%{transform:translateY(-100%)}100%{transform:translateY(100%)}}
 @keyframes hc-spin{to{transform:translate(-50%,-50%) rotate(360deg)}}
@@ -111,8 +110,9 @@ html[data-seen] .intro{display:none}
 .hero{position:relative;min-height:max(100svh,640px);overflow:hidden;isolation:isolate;background:#08090B}
 .hero-par{position:absolute;inset:-4% -2%;z-index:-3;will-change:transform}
 .hero-mouse{position:absolute;inset:0;transition:transform 1.2s var(--ease)}
-.hero-mouse img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;max-width:none;animation:hc-dolly 16s ease-in-out infinite alternate}
-.hero-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity 1.6s ease;animation:hc-dolly 16s ease-in-out infinite alternate;pointer-events:none}
+/* The picture is held still: the video's own smoke and light are the only movement in it. */
+.hero-mouse img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;max-width:none}
+.hero-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity 1.6s ease;pointer-events:none}
 .hero-video.on{opacity:1}
 .hero-shade{position:absolute;inset:0;z-index:-2;background:linear-gradient(90deg,rgba(8,9,11,.92) 0%,rgba(8,9,11,.6) 34%,rgba(8,9,11,0) 62%)}
 .hero-fade{position:absolute;inset:0;z-index:-1;background:linear-gradient(0deg,#08090B 0%,rgba(8,9,11,0) 28%),linear-gradient(180deg,rgba(8,9,11,.7) 0%,rgba(8,9,11,0) 22%)}
@@ -513,8 +513,7 @@ html h1,html[dir=ltr] h1{font-size:clamp(34px,10.4vw,46px)}
 }
 @media(prefers-reduced-motion:reduce){
 /* Reduced, not removed: fades and small loops stay, anything travelling across the screen goes. The intro is under a second, and the logo reveal is the point of it. */
-.hero-mouse img,.marquee>div,.agencies-track{animation:none}
-.hero-video{display:none}
+.marquee>div,.agencies-track{animation:none}
 .agencies-track-wrap{overflow-x:auto;scrollbar-width:none}
 .line>span,.hero-eyebrow,.hero-sub,.hero-pillars,.hero-cta{animation-name:fade}
 .pre{transform:none;filter:none}
