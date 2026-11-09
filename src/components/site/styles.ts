@@ -138,7 +138,10 @@ html[dir=rtl] .hero-tag{text-align:end}
 .agencies{position:absolute;bottom:0;inset-inline:0;display:flex;align-items:center;gap:clamp(18px,3vw,44px);padding:18px clamp(20px,6vw,96px);background:rgba(8,9,11,.62);backdrop-filter:blur(10px);border-top:1px solid var(--line);animation:fade .8s ease calc(var(--start) + .3s) both}
 .agencies-label{flex:none}
 .agencies-track-wrap{flex:1;min-width:0;overflow:hidden;mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent);-webkit-mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent)}
-.agencies-track{display:flex;gap:56px;width:max-content;font-family:var(--h);font-weight:700;font-size:clamp(16px,1.5vw,20px);white-space:nowrap;color:#D3D5D9;animation:hc-marquee 34s linear infinite}
+.agencies-track{display:flex;align-items:center;gap:14px;padding-right:14px;width:max-content;animation:hc-marquee 40s linear infinite}
+.ag{flex:none;display:grid;place-items:center;height:52px;padding:0 20px;border-radius:12px;background:#F3F3F1;box-shadow:inset 0 0 0 1px rgba(255,255,255,.6)}
+.ag-dark{background:#14161A;box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+.ag img{display:block;height:var(--h);width:auto}
 .agencies-track-wrap:hover .agencies-track{animation-play-state:paused}
 .has-ag .hero-foot{bottom:88px}
 .has-ag .hero-inner{padding-bottom:150px}
@@ -435,6 +438,8 @@ html h1,html[dir=ltr] h1{font-size:clamp(34px,10.4vw,46px)}
 .has-ag .hero-inner{padding-bottom:142px}
 .has-ag .hero-foot{bottom:62px}
 .agencies{padding-block:12px}
+.ag{height:42px;padding:0 14px;border-radius:10px}
+.ag img{height:calc(var(--h) * .78)}
 .agencies .label span:first-child{display:none}
 .net{min-height:340px}
 .net-hub{font-size:12px;padding:9px 12px}

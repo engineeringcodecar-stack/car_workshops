@@ -82,7 +82,8 @@ function body(lang: Lang) {
         <div class="agencies-label">${label(c.agencies.label)}</div>
         <div class="agencies-track-wrap" dir="ltr"><div class="agencies-track">${each(
             [...AGENCIES, ...AGENCIES, ...AGENCIES, ...AGENCIES],
-            (name, i) => `<span${i >= AGENCIES.length ? ' aria-hidden="true"' : ""}>${esc(name)}</span>`,
+            // Logos are sized to roughly equal area, so wide and square marks look balanced.
+            ([name, file, w, h, dark], i) => `<span class="ag${dark ? " ag-dark" : ""}"${i >= AGENCIES.length ? ' aria-hidden="true"' : ""}><img src="/site/agencies/${file}" width="${w}" height="${h}" alt="${i >= AGENCIES.length ? "" : esc(name)}" style="--h:${Math.min(34, Math.round(Math.sqrt(2300 * h / w)))}px" decoding="async"></span>`,
         )}</div></div>
     </div>
 </header>

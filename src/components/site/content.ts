@@ -4,7 +4,17 @@ export type Lang = "ar" | "en";
  * Official agencies, from the company's post of 24 May 2025 ("الوكيل الرسمي لمجموعة شركات").
  * Written in Latin in both languages, the way the brands write their names.
  */
-export const AGENCIES = ["Castrol", "Liqui Moly", "Mobil 1", "Valvoline", "MEGUIN", "K&N", "Denckermann", "Autolite"];
+// Official agencies: name, logo in /site/agencies/, the logo's own width and height, and a dark chip for logos made for dark backgrounds.
+export const AGENCIES: [string, string, number, number, boolean?][] = [
+    ["Castrol", "castrol.svg", 456, 110],
+    ["Liqui Moly", "liqui-moly.svg", 568, 371],
+    ["Mobil 1", "mobil1.webp", 360, 80],
+    ["Valvoline", "valvoline.svg", 288, 196],
+    ["MEGUIN", "meguin.svg", 639, 274],
+    ["K&N", "kn.svg", 820, 285],
+    ["Denckermann", "denckermann.webp", 360, 44, true],
+    ["Autolite", "autolite.webp", 360, 74],
+];
 
 export const INVEST_EMAIL = "investment@handsacars.com";
 export const INFO_EMAIL = "info@handsacars.com";
@@ -184,7 +194,7 @@ const EN: SiteContent = {
         description: "A network of car service and diagnostic centres run to one engineering standard on one operating system, and official agent for global brands including Castrol, Liqui Moly and Mobil 1. Branches, services, products and investment.",
     },
     langBtn: "ع",
-    langHref: "/",
+    langHref: "/ar",
     langAria: "التبديل إلى العربية",
     menu: "Menu",
     arrow: "→",
