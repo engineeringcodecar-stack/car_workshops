@@ -19,6 +19,7 @@ const NODES: [number, number][] = [[19, 26], [81, 26], [19, 74], [81, 74]];
 
 function body(lang: Lang) {
     const c = CONTENT[lang];
+    const ph = c.passport.phone;
     const mailto = `mailto:${INVEST_EMAIL}?subject=${encodeURIComponent(c.invest.subject)}`;
     const navKeys = ["about", "branches", "services", "inspect", "products", "invest"] as const;
     const menuKeys = ["about", "branches", "services", "inspect", "tech", "products", "passport", "invest", "contact"] as const;
@@ -61,6 +62,7 @@ function body(lang: Lang) {
             <source media="(max-width: 700px)" srcset="/site/hero-tall.webp" width="900" height="1200">
             <img src="/site/hero-wide.webp" srcset="/site/hero-wide.webp 1672w, /site/hero-wide-2560.webp 2560w" sizes="max(104vw, 192vh)" width="1672" height="941" alt="${esc(c.hero.alt)}" fetchpriority="high" decoding="async">
         </picture>
+        <video class="hero-video" muted loop playsinline disablepictureinpicture preload="none" aria-hidden="true" tabindex="-1" data-src="/site/hero-loop.mp4"></video>
     </div></div>
     <div class="hero-shade"></div><div class="hero-fade"></div><div class="hero-lines"></div>
     <div class="hero-inner"><div class="hero-copy">
@@ -219,10 +221,34 @@ function body(lang: Lang) {
             <span class="demo">${esc(c.passport.tag)}</span>
         </div>
         <div class="pass-body">
-            <div data-reveal="1" class="book-wrap"><div class="book">
-                <i></i><i></i>
-                <div>${logo()}<div class="book-t" dir="ltr">VEHICLE<br>SERVICE<br>PASSPORT</div><div class="book-n" dir="ltr">Nº DEMO-0000</div></div>
-            </div></div>
+            <div data-reveal="1" class="pass-visual">
+                <div class="book-wrap"><div class="book">
+                    <i></i><i></i>
+                    <div>${logo()}<div class="book-t" dir="ltr">VEHICLE<br>SERVICE<br>PASSPORT</div><div class="book-n" dir="ltr">Nº DEMO-0000</div></div>
+                </div></div>
+                <div class="phone" aria-hidden="true"><div class="phone-screen">
+                    <div class="ph-bar" dir="ltr"><span>9:41</span><i></i></div>
+                    <div class="ph-head">
+                        <div class="ph-id">${logo()}<div><b>${esc(ph.title)}</b><span class="ph-ok">${esc(ph.verified)}</span></div></div>
+                        <span class="ph-sn" dir="ltr">BK-DEMO</span>
+                    </div>
+                    <div class="ph-tabs"><span class="on">${esc(ph.summary)}</span>${each(["9", "8"], (n) => `<span>${esc(ph.visit)} <bdi dir="ltr">#${n}</bdi></span>`)}</div>
+                    <div class="ph-card ph-status">
+                        <div class="ph-row"><b>${esc(ph.now)}</b><span>${esc(ph.visit)} <bdi dir="ltr">#9</bdi></span></div>
+                        <div class="ph-pill">${each(ph.states, (st, i) => `<span${i == 1 ? ' class="on"' : ""}>${esc(st)}</span>`)}</div>
+                        <div class="ph-steps">${each(ph.steps, (st, i) => `<div${i < 2 ? ` class="on${i == 1 ? " cur" : ""}"` : ""}><i>${i + 1}</i><span>${esc(st)}</span></div>`)}</div>
+                    </div>
+                    <div class="ph-card">
+                        <span class="ph-k">${esc(ph.vehicle)}</span><b class="ph-car">${esc(c.passport.stats[0][1])}</b>
+                        <div class="ph-grid">
+                            <div><span>${esc(ph.odo)}</span><b><span dir="ltr">${c.passport.timeline[0].km}</span> <small>${esc(ph.km)}</small></b></div>
+                            <div><span>${esc(ph.visits)}</span><b>${esc(c.passport.stats[2][1])}</b></div>
+                        </div>
+                    </div>
+                    <div class="ph-card ph-last"><span class="ph-k">${esc(ph.last)}</span><b>${esc(c.services.items[c.passport.timeline[0].svc].name)}</b><span dir="ltr">${c.passport.timeline[0].date} · ${c.passport.timeline[0].km} KM</span></div>
+                </div></div>
+                <div class="sticker"><img src="/site/qr-demo.svg" width="29" height="29" alt="${esc(c.passport.sticker)}" loading="lazy"><span dir="ltr">BK-DEMO</span></div>
+            </div>
             <div data-reveal="1" data-delay="120" class="pass-card">
                 <div class="pass-stats">${each(c.passport.stats, ([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`)}</div>
                 <div class="pass-list">${each(c.passport.timeline, (e, i) => `<div class="acc acc-tl${i ? "" : " open"}">
@@ -231,6 +257,10 @@ function body(lang: Lang) {
                 </div>`)}</div>
             </div>
         </div>
+        <div class="steps pass-how">${each(c.passport.how, ([title, text], i) => `<div data-reveal="1" data-delay="${i * 80}" class="step">
+            <div class="step-top"><span dir="ltr">${pad(i + 1)}</span><i></i></div>
+            <h3>${esc(title)}</h3><p>${esc(text)}</p>
+        </div>`)}</div>
     </div>
 </section>
 

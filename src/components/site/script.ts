@@ -34,6 +34,16 @@ if(!rm)$(".hero").addEventListener("mousemove",function(e){
   mouse.style.transform="translate3d("+x*-18+"px,"+y*-12+"px,0)";
 });
 
+/* Hero video: wide screens only, after the page has loaded, and never with reduced motion
+   or data saver. The still image stays underneath, so nothing changes if it never plays. */
+var hv=$(".hero-video");
+if(hv&&!rm&&matchMedia("(min-width: 701px)").matches&&!(navigator.connection&&navigator.connection.saveData)){
+  var hvPlay=function(){var p=hv.play();if(p&&p.catch)p.catch(function(){})};
+  var hvStart=function(){hv.addEventListener("playing",function(){hv.classList.add("on")},{once:true});hv.src=hv.dataset.src;hvPlay()};
+  if(d.readyState=="complete")setTimeout(hvStart,300);else w.addEventListener("load",function(){setTimeout(hvStart,300)});
+  if("IntersectionObserver"in w)new IntersectionObserver(function(es){if(hv.src)es[0].isIntersecting?hvPlay():hv.pause()}).observe($(".hero"));
+}
+
 /* Reveal on scroll */
 if("IntersectionObserver"in w){
   var io=new IntersectionObserver(function(es){es.forEach(function(e){
@@ -84,6 +94,18 @@ scanBtn.addEventListener("click",function(){
     pick("sys",n);show();
   },1100);
 });
+
+/* Passport phone: walks the live status through its four steps while it is on screen */
+var phSt=$(".ph-status");
+if(phSt&&"IntersectionObserver"in w){
+  var phSteps=$$(".ph-steps>div"),phPill=$$(".ph-pill span"),phN=2,phT=0;
+  var phSet=function(n){
+    phSteps.forEach(function(s,i){s.classList.toggle("on",i<n);s.classList.toggle("cur",i==n-1&&n<4)});
+    phPill.forEach(function(s,i){s.classList.toggle("on",i==n-1)});
+  };
+  var phNext=function(){phN=phN%4+1;phSet(phN);phT=setTimeout(phNext,phN==4?3200:1800)};
+  new IntersectionObserver(function(es){clearTimeout(phT);if(es[0].isIntersecting)phT=setTimeout(phNext,1800)}).observe(phSt);
+}
 
 /* One click handler for all of it */
 d.addEventListener("click",function(e){
