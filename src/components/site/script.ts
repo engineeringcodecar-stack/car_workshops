@@ -8,7 +8,7 @@ var d=document,w=window,rm=matchMedia("(prefers-reduced-motion: reduce)").matche
 var $=function(s){return d.querySelector(s)},$$=function(s){return Array.prototype.slice.call(d.querySelectorAll(s))};
 
 /* Scroll: progress bar, hero parallax, solid nav, active link */
-var prog=$(".progress i"),par=$(".hero-par"),txt=$(".hero-copy"),nav=$(".nav"),raf=0;
+var prog=$(".progress i"),par=$(".hero-par"),txt=$(".hero-copy"),nav=$(".nav"),waBtn=$(".wa"),raf=0;
 var ids=$$("[data-nav]").map(function(a){return a.dataset.nav}).filter(function(v,i,a){return a.indexOf(v)==i});
 function frame(){
   raf=0;
@@ -23,6 +23,7 @@ function frame(){
   ids.forEach(function(id){var el=d.getElementById(id);if(el&&el.getBoundingClientRect().top<h*.45)act=id});
   $$("[data-nav]").forEach(function(a){a.classList.toggle("on",a.dataset.nav==act)});
   nav.classList.toggle("solid",y>40);
+  waBtn.classList.toggle("show",y>h*.6);
 }
 function tick(){if(!raf)raf=requestAnimationFrame(frame)}
 w.addEventListener("scroll",tick,{passive:true});w.addEventListener("resize",tick);frame();
@@ -34,13 +35,20 @@ if(!rm)$(".hero").addEventListener("mousemove",function(e){
   mouse.style.transform="translate3d("+x*-18+"px,"+y*-12+"px,0)";
 });
 
-/* Hero video: wide screens only, after the page has loaded, and never with reduced motion
-   or data saver. The still image stays underneath, so nothing changes if it never plays. */
-var hv=$(".hero-video");
-if(hv&&!rm&&matchMedia("(min-width: 701px)").matches&&!(navigator.connection&&navigator.connection.saveData)){
+/* Hero video: starts after the page has loaded, and never with reduced motion, data saver
+   or a 2G connection. Phones get the tall clip, matching the <picture> breakpoint. The still
+   image stays underneath, so nothing changes if it never plays. */
+var hv=$(".hero-video"),net=navigator.connection||{};
+if(hv&&!rm&&!net.saveData&&!/2g/.test(net.effectiveType||"")){
+  var hvTall=matchMedia("(max-width: 700px)");
   var hvPlay=function(){var p=hv.play();if(p&&p.catch)p.catch(function(){})};
-  var hvStart=function(){hv.addEventListener("playing",function(){hv.classList.add("on")},{once:true});hv.src=hv.dataset.src;hvPlay()};
+  var hvStart=function(){
+    hv.classList.remove("on");
+    hv.addEventListener("playing",function(){hv.classList.add("on")},{once:true});
+    hv.src=hvTall.matches?hv.dataset.srcTall:hv.dataset.src;hvPlay();
+  };
   if(d.readyState=="complete")setTimeout(hvStart,300);else w.addEventListener("load",function(){setTimeout(hvStart,300)});
+  if(hvTall.addEventListener)hvTall.addEventListener("change",function(){if(hv.src)hvStart()});
   if("IntersectionObserver"in w)new IntersectionObserver(function(es){if(hv.src)es[0].isIntersecting?hvPlay():hv.pause()}).observe($(".hero"));
 }
 

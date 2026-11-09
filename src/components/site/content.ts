@@ -203,6 +203,12 @@ const AR = {
         phoneLabel: "قسم المتابعة والعلاقات",
         whatsappLabel: "واتساب",
     },
+    // Floating WhatsApp button, and the messages a chat opens with.
+    wa: {
+        label: "راسلنا على واتساب",
+        text: "السلام عليكم، أريد الاستفسار عن خدمات مركز هندسة السيارات.",
+        invest: "السلام عليكم، لدي استفسار عن فرص الاستثمار مع هندسة السيارات.",
+    },
     foot: { branches: "فروعنا", sitemap: "الموقع", follow: "تابعنا" },
     rights: "© هندسة السيارات. جميع الحقوق محفوظة.",
 };
@@ -371,6 +377,11 @@ const EN: SiteContent = {
         infoLabel: "General enquiries",
         phoneLabel: "Customer relations",
         whatsappLabel: "WhatsApp",
+    },
+    wa: {
+        label: "Chat on WhatsApp",
+        text: "Hello, I'd like to ask about Engineering of Cars services.",
+        invest: "Hello, I have an enquiry about investing with Engineering of Cars.",
     },
     foot: { branches: "BRANCHES", sitemap: "SITEMAP", follow: "FOLLOW" },
     rights: "© Engineering of Cars. All rights reserved.",

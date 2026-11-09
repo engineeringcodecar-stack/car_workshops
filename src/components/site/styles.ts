@@ -98,6 +98,11 @@ html[data-seen] .intro{display:none}
 .nav-burger.open span:last-child{transform:translateY(-3.75px) rotate(-45deg)}
 .menu{position:fixed;inset:0;z-index:105;background:rgba(8,9,11,.97);backdrop-filter:blur(20px);display:flex;flex-direction:column;justify-content:safe center;overflow-y:auto;padding:100px clamp(24px,8vw,64px) 40px;gap:4px;opacity:0;visibility:hidden;transition:opacity .45s,visibility .45s}
 .menu.open{opacity:1;visibility:visible}
+/* Floating WhatsApp button: appears once the hero has scrolled away, and sits under the open menu */
+.wa{position:fixed;z-index:100;bottom:max(20px,env(safe-area-inset-bottom));inset-inline-end:clamp(16px,2.4vw,28px);display:flex;align-items:center;gap:10px;height:54px;padding-inline:16px 20px;border-radius:99px;background:rgba(13,15,18,.9);backdrop-filter:blur(12px);border:1px solid rgba(37,211,102,.5);box-shadow:0 18px 44px rgba(0,0,0,.55);font-size:15px;font-weight:600;color:#F5F5F4;opacity:0;visibility:hidden;transform:translateY(14px);transition:opacity .4s,visibility .4s,transform .4s var(--ease),border-color .25s,box-shadow .3s}
+.wa.show{opacity:1;visibility:visible;transform:none}
+.wa svg{flex:none;width:26px;height:26px;fill:#25D366}
+.wa:hover{border-color:#25D366;box-shadow:0 18px 44px rgba(0,0,0,.55),0 0 0 4px rgba(37,211,102,.14);color:#fff;transform:translateY(-3px)}
 .menu a{display:flex;align-items:baseline;gap:16px;border-bottom:1px solid rgba(245,245,244,.08);padding:11px 0}
 .menu a span:first-child{font:500 11px/1 var(--m);color:#E5444E;letter-spacing:.1em}
 .menu a span:last-child{font-family:var(--h);font-weight:800;font-size:clamp(24px,6.4vw,36px)}
@@ -478,8 +483,7 @@ html[dir=rtl] .foot-cols a[data-out]{text-align:right}
 .hero-eyebrow,.hero-tag,.hero-pillars{display:none}
 .hero-cta{flex-wrap:nowrap}
 .hero-cta .btn{flex:1 1 0;min-width:0;justify-content:center;padding-inline:12px;white-space:nowrap}
-.hero-mouse img{object-position:60% center}
-.hero-video{display:none}
+.hero-mouse img,.hero-video{object-position:60% center}
 .hero-shade{background:linear-gradient(0deg,rgba(8,9,11,.96) 0%,rgba(8,9,11,.6) 45%,rgba(8,9,11,.1) 70%)}
 .hero-inner{justify-content:flex-end;align-items:stretch!important;padding-bottom:96px}
 .hero-copy{max-width:none}
@@ -491,6 +495,8 @@ html h1,html[dir=ltr] h1{font-size:clamp(34px,10.4vw,46px)}
 .ag img{height:calc(var(--h) * .78)}
 .agencies .label span:first-child{display:none}
 .net{min-height:340px}
+.wa{width:54px;padding:0;justify-content:center}
+.wa span{display:none}
 .pass-visual{flex-basis:100%;min-width:0;max-width:360px;height:540px}
 .book-wrap{width:190px}
 .book>div{padding:20px;gap:12px}
