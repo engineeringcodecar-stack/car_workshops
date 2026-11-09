@@ -109,7 +109,7 @@ html[data-seen] .intro{display:none}
 /* Hero */
 .hero{position:relative;min-height:max(100svh,640px);overflow:hidden;isolation:isolate;background:#08090B}
 .hero-par{position:absolute;inset:-4% -2%;z-index:-3;will-change:transform}
-.hero-mouse{position:absolute;inset:0;transition:transform 1.2s var(--ease)}
+.hero-mouse{position:absolute;inset:0}
 /* The picture is held still: the video's own smoke and light are the only movement in it. */
 .hero-mouse img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;max-width:none}
 .hero-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity 1.6s ease;pointer-events:none}
