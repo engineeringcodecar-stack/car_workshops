@@ -109,7 +109,10 @@ html[data-seen] .intro{display:none}
 /* Hero */
 .hero{position:relative;min-height:max(100svh,640px);overflow:hidden;isolation:isolate;background:#08090B}
 .hero-par{position:absolute;inset:-4% -2%;z-index:-3;will-change:transform}
-.hero-mouse{position:absolute;inset:0}
+/* The owner's call (2026-11-10): the car in the wide picture read as stretched and the one in
+   the tall picture as squeezed, so the picture is drawn 12% narrower on wide screens and 12%
+   wider on phones. The image, the video and its mask sit inside this box and change together. */
+.hero-mouse{position:absolute;inset:0;transform:scaleY(1.1364)}
 /* The picture is held still: the video's own smoke and light are the only movement in it.
    The video is softer than the still, so a mask shows it only where the clip moves (smoke,
    light); the car and the floor stay the sharp still underneath. The mask is fitted like the
@@ -273,7 +276,8 @@ html[dir=rtl] .step-top i{background:linear-gradient(270deg,rgba(199,39,49,.6),r
 .scan-btn i{width:8px;height:8px;border-radius:50%;background:#fff;box-shadow:0 0 10px #fff}
 .scan-btn.busy{background:rgba(199,39,49,.25);cursor:default}
 .stage{position:relative;aspect-ratio:1672/941;border-radius:16px;overflow:hidden;border:1px solid rgba(245,245,244,.12);background:#101216;isolation:isolate}
-.stage-car{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:saturate(.75) brightness(.8)}
+/* Same picture as the wide hero, so it gets the same 12% narrowing. The hotspots are moved to match in content.ts. */
+.stage-car{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleY(1.1364);filter:saturate(.75) brightness(.8)}
 .stage-vig{position:absolute;inset:0;background:radial-gradient(ellipse at 66% 58%,transparent 30%,rgba(8,9,11,.65) 85%)}
 .stage-bp{opacity:.55;mix-blend-mode:screen}
 .stage-scan{position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(to bottom,transparent 44%,rgba(229,68,78,.22) 49%,rgba(255,78,89,.85) 50%,rgba(199,39,49,.22) 51%,transparent 56%);animation:hc-scan 5s linear infinite}
@@ -480,7 +484,11 @@ html[dir=rtl] .foot-cols a[data-out]{text-align:right}
 }
 /* Same breakpoint as the hero <picture> and the tall clip */
 @media(max-width:700px){
-.hero-video{-webkit-mask-image:url(/site/hero-mask-tall-v2.webp);mask-image:url(/site/hero-mask-tall-v2.webp)}
+.hero-video{-webkit-mask-image:url(/site/hero-mask-tall-v2.webp);mask-image:url(/site/hero-mask-tall-v2.webp);-webkit-mask-position:100% center;mask-position:100% center}
+/* 12% wider: fitted into a box 112% as tall, then pressed back to full height. Aligned to the
+   right edge, where the car ends, so the whole car stays on screen. */
+.hero-mouse{inset:0 0 auto 0;height:112%;transform:scaleY(.8929);transform-origin:50% 0}
+.hero-mouse img,.hero-video{object-position:100% center}
 }
 @media(max-width:639px){
 .nav-cta{display:none}
@@ -489,12 +497,10 @@ html[dir=rtl] .foot-cols a[data-out]{text-align:right}
 .nav-logo .logo{height:38px}
 .nav.solid .nav-logo .logo{height:32px}
 .contacts{grid-template-columns:minmax(0,1fr)}
-.hero-par{inset:0 0 auto 0;height:66%;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
+.hero-par{inset:0 0 auto 0;height:59%;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
 .hero-eyebrow,.hero-tag,.hero-pillars{display:none}
 .hero-cta{flex-wrap:nowrap}
 .hero-cta .btn{flex:1 1 0;min-width:0;justify-content:center;padding-inline:12px;white-space:nowrap}
-.hero-mouse img,.hero-video{object-position:60% center}
-.hero-video{-webkit-mask-position:60% center;mask-position:60% center}
 .hero-shade{background:linear-gradient(0deg,rgba(8,9,11,.96) 0%,rgba(8,9,11,.6) 45%,rgba(8,9,11,.1) 70%)}
 .hero-inner{justify-content:flex-end;align-items:stretch!important;padding-bottom:96px}
 .hero-copy{max-width:none}

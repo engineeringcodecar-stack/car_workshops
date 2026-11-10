@@ -26,8 +26,12 @@ export const SOCIALS = [
     ["TikTok", "https://www.tiktok.com/@carsiqmaysan"],
 ] as const;
 
-/** Inspection points, as % of the 1672x941 car image. */
-export const HOTSPOTS: [number, number][] = [
+/**
+ * Inspection points, as % of the 1672x941 car image. The page draws that image 12% narrower
+ * (stretched 1.1364 in height about its middle, see `.stage-car`), so the heights are moved
+ * the same way when they are placed.
+ */
+const HOTSPOTS_ON_IMAGE: [number, number][] = [
     [53.8, 44.6],
     [54, 60.5],
     [44.2, 52.4],
@@ -35,6 +39,7 @@ export const HOTSPOTS: [number, number][] = [
     [78, 63],
     [90, 62],
 ];
+export const HOTSPOTS: [number, number][] = HOTSPOTS_ON_IMAGE.map(([x, y]) => [x, +(50 + (y - 50) * 1.1364).toFixed(1)]);
 
 /** Which products/ image goes with each entry in `products.items`. */
 export const PRODUCT_IMAGES = ["oils", "filters", "tyres", "parts"];
