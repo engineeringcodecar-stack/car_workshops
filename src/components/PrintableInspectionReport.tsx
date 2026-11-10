@@ -30,6 +30,7 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
             label: srv.name || srv.label || srv.service || '',
             status: srv.status || 'يحتاج تغيير',
             price: srv.price || 0,
+            noGift: true,
             notes: (typeof srv.details === 'string' ? srv.details : '') || srv.notes || '',
         }))
         : [];
@@ -40,6 +41,7 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
         label: typeof srv === 'string' ? srv : (srv.service || srv.label || 'خدمة سابقة'),
         status: srv.status || 'مكتمل',
         price: srv.price || 0,
+        noGift: true,
     }))), ...floorExtras];
 
     // Totals: pricing.totalPrice/amountOwedByClient are only written by reception, so they go
@@ -152,6 +154,18 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
         return val;
     };
 
+    // A price typed as zero marks the line as a gift: "هدية" is printed in its place. An empty
+    // price is just a line without one. Lines added on the floor and orders in the old format
+    // store 0 for "no price" (noGift above), so those are never read as gifts.
+    const isGift = (val: unknown) => {
+        const t = String(val ?? '').replace(/,/g, '').trim();
+        return t !== '' && Number(t) === 0;
+    };
+    // A main service added on the floor (it carries `addedDuringWork`) is stored with "0" when
+    // no price was typed there, so it only counts as a gift if a zero unit price was typed.
+    const isGiftService = (svc: any) =>
+        isGift(svc?.price) && (!(svc && typeof svc === 'object' && 'addedDuringWork' in svc) || isGift(svc.details?.unitPrice));
+
     const SvcRow = ({
         num, label, svcKey, fields,
     }: {
@@ -198,7 +212,7 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
                     ))}
                 </td>
                 <td style={{ padding: '3px 5px', textAlign: 'center', fontWeight: 700, fontSize: '11px', width: '58px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                    <Val v={formatNum(svc.price)} w={48} />
+                    <Val v={isGiftService(svc) ? 'هدية' : formatNum(svc.price)} w={48} />
                 </td>
             </tr>
         );
@@ -561,7 +575,7 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
                                     </td>
                                     <td style={{ padding: rowPadding, textAlign: 'center', fontWeight: 700, fontSize: '12px', width: '58px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
                                         {/* ↑ fontSize was 10px → 12px */}
-                                        <Val v={(s as any)[svc.key]?.price} w={48} />
+                                        <Val v={isGiftService((s as any)[svc.key]) ? 'هدية' : (s as any)[svc.key]?.price} w={48} />
                                     </td>
                                 </tr>
                             ))}
@@ -576,11 +590,11 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
                                         <td style={{ padding: customPadding, fontWeight: 700, fontSize: customFontSize, color: '#92400e' }}>{c.label}</td>
                                         <td style={{ padding: customPadding }}><StatusBadge status={c.status} /></td>
                                         <td style={{ padding: customPadding, fontSize: totalItems > 14 ? '10px' : '12px', color: '#6b7280' }}>
-                                            {c.notes ? c.notes : 'حدث صيانة'}
+                                            {c.notes ? c.notes : (c.kind === 'carWash' ? 'غسل' : 'حدث صيانة')}
                                         </td>
                                         {/* ↑ was '9px' / '11px' → '10px' / '12px' */}
                                         <td style={{ padding: customPadding, textAlign: 'center', fontWeight: 700 }}>
-                                            <Val v={formatNum(c.price)} w={55} />
+                                            <Val v={!c.noGift && isGift(c.price) ? 'هدية' : formatNum(c.price)} w={55} />
                                         </td>
                                     </tr>
                                 );

@@ -959,8 +959,8 @@ export default function SectorReception({
     };
 
     const handleNextStep1 = () => {
-        if (!name || !phone || !make) {
-            setError("يرجى تعبئة الحقول المطلوبة (اسم، هاتف، نوع السيارة)");
+        if (!name || !phone || !make || !engineSize.trim()) {
+            setError("يرجى تعبئة الحقول المطلوبة (اسم، هاتف، نوع السيارة، حجم المحرك)");
             return;
         }
         const tire = parseTireSize(tireSize);
@@ -1023,6 +1023,8 @@ export default function SectorReception({
     const saveWorkOrder = async (status: 'تم الاستلام' | 'قيد العمل', startTime: string | null, skipStep3 = false) => {
         setLoading(true); setError(null);
         try {
+            // Engine size is mandatory. Step 1 already asks for it; this covers any other way in.
+            if (!engineSize.trim()) throw new Error('حجم المحرك مطلوب. ارجع إلى بيانات السيارة وأدخله.');
             let branchId = null, employeeId = null;
             if (user?.id) {
                 const { data: emp } = await supabase.from('employees').select('id, branch_id').eq('auth_id', user.id).maybeSingle();
@@ -1443,7 +1445,7 @@ export default function SectorReception({
                                 </div>
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-muted-foreground">حجم المحرك</label>
+                                <label className="text-sm font-medium text-muted-foreground">حجم المحرك <span className="text-rose-500">*</span></label>
                                 <input type="text" placeholder="2.5L" className="input-field" value={engineSize} onChange={e => setEngineSize(e.target.value)} />
                             </div>
                             <div className="space-y-2">

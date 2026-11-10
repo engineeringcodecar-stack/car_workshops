@@ -28,6 +28,13 @@ type ServiceEntry = {
 
 const makeService = (): ServiceEntry => ({ status: "", details: {}, price: "" });
 
+// غسل السيارة (المجر and الكراج branches). It is saved as one of the order's extra lines
+// (customServices) under this fixed id, so the invoice, the totals and every report pick it
+// up like any other extra line; the form only gives it a row of its own.
+const CAR_WASH_ID = "car-wash";
+type CarWashLine = { id: string; label: string; status: string; price: string; kind: "carWash"; washType: string; notes: string };
+const CAR_WASH_TYPES = ["غسل خارجي", "غسل داخلي", "غسل داخلي وخارجي", "غسل كامل", "غسل محرك", "غسل وتلميع"];
+
 const FREE_SERVICES = [
     { key: "windshieldWater", label: "ماء المساحات" },
     { key: "tirePressure",    label: "ضغط الإطارات" },
@@ -582,6 +589,9 @@ export default function StandardReception({
     const isSectorBranch = branches.find(b => b.id === selectedBranchId)?.name === 'القطاع' || branches.find(b => b.id === selectedBranchId)?.name === 'فرع القطاع';
     const isIndustrialBranch = ['الصناعية', 'فرع الصناعية', 'الكراج', 'فرع الكراج'].includes(branches.find(b => b.id === selectedBranchId)?.name || '');
     const isGarageBranch = ['الكراج', 'فرع الكراج'].includes(branches.find(b => b.id === selectedBranchId)?.name || '');
+    // Matched by the word in the name, not the exact name: المجر is a new branch and no other
+    // code depends on how it is spelled in the branches table.
+    const hasCarWash = /المجر|الكراج/.test(branches.find(b => b.id === selectedBranchId)?.name || '');
 
     const activeServicesList = useMemo(() => {
         return MAIN_SERVICES.map(svc => {
@@ -804,6 +814,21 @@ export default function StandardReception({
         }));
     };
 
+    // Car wash row: type, notes and price, kept as one extra line with a fixed id.
+    const carWash = customServices.find(s => s.id === CAR_WASH_ID) as CarWashLine | undefined;
+    const setCarWashField = (field: "washType" | "notes" | "price", value: string) => {
+        setCustomServices(prev => {
+            const cur = prev.find(s => s.id === CAR_WASH_ID) as CarWashLine | undefined;
+            const next: CarWashLine = { id: CAR_WASH_ID, kind: "carWash", label: "", status: "", washType: "", notes: "", price: "", ...cur, [field]: value };
+            next.label = next.washType.trim() ? `غسل السيارة — ${next.washType.trim()}` : "غسل السيارة";
+            const rest = prev.filter(s => s.id !== CAR_WASH_ID);
+            // Every field cleared means the order has no wash.
+            return !next.washType.trim() && !next.notes.trim() && next.price === "" ? rest : [next, ...rest];
+        });
+    };
+    // Where the wash has its own row, it is left out of the general list of extra lines.
+    const otherCustoms = hasCarWash ? customServices.filter(s => s.id !== CAR_WASH_ID) : customServices;
+
     // Phone or Booklet Serial search
     useEffect(() => {
         if (typeof window !== "undefined") {
@@ -1002,8 +1027,8 @@ export default function StandardReception({
     };
 
     const handleNextStep1 = () => {
-        if (!name || !phone || !make) {
-            setError("يرجى تعبئة الحقول المطلوبة (اسم، هاتف، نوع السيارة)");
+        if (!name || !phone || !make || !engineSize.trim()) {
+            setError("يرجى تعبئة الحقول المطلوبة (اسم، هاتف، نوع السيارة، حجم المحرك)");
             return;
         }
         setError(null); setStep(2);
@@ -1061,6 +1086,8 @@ export default function StandardReception({
     const saveWorkOrder = async (status: 'تم الاستلام' | 'قيد العمل', startTime: string | null, skipStep3 = false) => {
         setLoading(true); setError(null);
         try {
+            // Engine size is mandatory. Step 1 already asks for it; this covers any other way in.
+            if (!engineSize.trim()) throw new Error('حجم المحرك مطلوب. ارجع إلى بيانات السيارة وأدخله.');
             let branchId = null, employeeId = null;
             if (user?.id) {
                 const { data: emp } = await supabase.from('employees').select('id, branch_id').eq('auth_id', user.id).maybeSingle();
@@ -1491,7 +1518,7 @@ export default function StandardReception({
                                 </div>
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-muted-foreground">حجم المحرك</label>
+                                <label className="text-sm font-medium text-muted-foreground">حجم المحرك <span className="text-rose-500">*</span></label>
                                 <input type="text" placeholder="2.5L" className="input-field" value={engineSize} onChange={e => setEngineSize(e.target.value)} />
                             </div>
                             <div className="space-y-2">
@@ -1989,19 +2016,56 @@ export default function StandardReception({
                             )}
                         </div>
 
+                        {/* Car wash (المجر and الكراج): type, notes and price */}
+                        {hasCarWash && (
+                            <div className={`rounded-xl border transition-colors ${carWash ? 'border-rose-500/40 bg-rose-950/10' : 'border-border bg-background/40'}`}>
+                                <div className="flex flex-wrap items-center gap-3 p-3">
+                                    <span className="text-xs font-mono text-muted-foreground w-5 text-center">{MAIN_SERVICES.length + 1}</span>
+                                    <span className="font-bold text-sm min-w-[140px]">غسل السيارة</span>
+                                    <input
+                                        type="text"
+                                        placeholder="نوع الغسل..."
+                                        list="carWashTypes"
+                                        value={carWash?.washType || ""}
+                                        onChange={e => setCarWashField("washType", e.target.value)}
+                                        className="input-field text-xs py-1.5 flex-1 min-w-[120px]"
+                                    />
+                                    <input
+                                        type="text"
+                                        placeholder="ملاحظات..."
+                                        value={carWash?.notes || ""}
+                                        onChange={e => setCarWashField("notes", e.target.value)}
+                                        className="input-field text-xs py-1.5 flex-1 min-w-[120px]"
+                                    />
+                                    <div className="flex items-center gap-1">
+                                        <input
+                                            type="text" inputMode="numeric"
+                                            placeholder="السعر"
+                                            value={withCommas(carWash?.price || "")}
+                                            onChange={e => setCarWashField("price", digitsOnly(e.target.value))}
+                                            className="input-field text-xs py-1.5 w-24 text-left"
+                                            dir="ltr"
+                                        />
+                                        <span className="text-xs text-muted-foreground">د.ع</span>
+                                    </div>
+                                </div>
+                                <p className="px-3 pb-2 pr-[3.25rem] text-[11px] text-muted-foreground">اكتب السعر 0 إذا كان الغسل هدية، فيُطبع «هدية» في الفاتورة بدل السعر.</p>
+                            </div>
+                        )}
+
                         {/* Maintenance Events (أحداث الصيانة - previously Custom Services) */}
                         <div className="rounded-xl border border-border bg-background/40">
                             <div className="flex flex-wrap items-center justify-between gap-3 p-3">
                                 <div className="flex items-center gap-3">
                                     <span className="text-xs font-mono text-muted-foreground w-5 text-center">
-                                        {isSectorBranch 
+                                        {isSectorBranch
                                             ? SECTOR_BRANCH_SERVICES.reduce((acc, s) => acc + s.items.length, 0) + 1
-                                            : MAIN_SERVICES.length + 1
+                                            : MAIN_SERVICES.length + (hasCarWash ? 2 : 1)
                                         }
                                     </span>
                                     <span className="font-bold text-sm min-w-[140px]">أحداث الصيانة (خدمات إضافية)</span>
                                 </div>
-                                {customServices.length === 0 && (
+                                {otherCustoms.length === 0 && (
                                     <button
                                         type="button"
                                         onClick={addCustomService}
@@ -2012,9 +2076,9 @@ export default function StandardReception({
                                 )}
                             </div>
 
-                            {customServices.length > 0 && (
+                            {otherCustoms.length > 0 && (
                                 <div className="px-4 pb-3 pr-[3.25rem] border-t border-border/50 pt-3 space-y-3">
-                                    {customServices.map((cs, idx) => (
+                                    {otherCustoms.map((cs, idx) => (
                                         <div key={cs.id} className="flex flex-wrap items-center gap-3">
                                             <input
                                                 type="text"
@@ -2247,6 +2311,10 @@ export default function StandardReception({
             )}
 
 
+
+            <datalist id="carWashTypes">
+                {CAR_WASH_TYPES.map(t => <option key={t} value={t} />)}
+            </datalist>
 
             <datalist id="customServicesList">
                 {suggestionLists["materials"] && suggestionLists["materials"].length > 0 ? (

@@ -122,6 +122,9 @@ export default function InspectionForm({
         const phoneClean = normalizePhone(phone);
         // clients.phone is UNIQUE: a name-only inspection inserted "" and the next one failed.
         if (!selectedClientId && !phoneClean) { setError("أدخل رقم هاتف الزبون — مطلوب لحفظ الفحص."); return; }
+        // Engine size is mandatory across the system.
+        const engineClean = engineSize.trim();
+        if (!engineClean) { setError("أدخل حجم المحرك — مطلوب لحفظ الفحص."); return; }
         setLoading(true); setError(null);
         try {
             // ── client: use the one picked from search, else find-or-create by phone ──
@@ -152,10 +155,15 @@ export default function InspectionForm({
             if (!vehicleId) {
                 const { data: nv, error: ve } = await supabase.from("vehicles").insert({
                     client_id: clientId, make: make.trim() || "-", model: model.trim() || "-",
-                    plate_number: plateClean || null, engine_size: engineSize.trim() || null,
+                    plate_number: plateClean || null, engine_size: engineClean,
                 }).select("id").single();
                 if (ve) throw ve;
                 vehicleId = nv.id;
+            } else {
+                // An existing car: keep the engine size entered here on its record, so a car
+                // saved before the field was mandatory is completed on its next visit.
+                const { error: ue } = await supabase.from("vehicles").update({ engine_size: engineClean }).eq("id", vehicleId);
+                if (ue) throw ue;
             }
             // ── insert the inspection as a report ──
             const payload = {
@@ -258,7 +266,7 @@ export default function InspectionForm({
                     <Field label="نوع المركبة"><input className="input-field" value={make} onChange={e => setMake(e.target.value)} placeholder="—" /></Field>
                     <Field label="الموديل / السنة"><input className="input-field" value={model} onChange={e => setModel(e.target.value)} placeholder="—" /></Field>
                     <Field label="رقم اللوحة"><input className="input-field" value={plateNumber} onChange={e => setPlateNumber(e.target.value)} placeholder="—" /></Field>
-                    <Field label="حجم المحرك"><input className="input-field" value={engineSize} onChange={e => setEngineSize(e.target.value)} placeholder="—" /></Field>
+                    <Field label="حجم المحرك" required><input className="input-field" value={engineSize} onChange={e => setEngineSize(e.target.value)} placeholder="2.5L" /></Field>
                     <Field label="عداد المسافة"><input className="input-field text-right" dir="ltr" inputMode="numeric" value={withCommas(odometer)} onChange={e => setOdometer(digitsOnly(e.target.value))} placeholder="0" /></Field>
                     <Field label="الفني المسؤول"><input className="input-field" value={technician} onChange={e => setTechnician(e.target.value)} placeholder="—" /></Field>
                     <ContractBanner className="col-span-2 md:col-span-4" label="فحص شامل" contracts={contracts} contractId={contractId} />
@@ -360,10 +368,10 @@ export default function InspectionForm({
     );
 }
 
-function Field({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string }) {
+function Field({ label, children, className = "", required = false }: { label: string; children: React.ReactNode; className?: string; required?: boolean }) {
     return (
         <div className={className}>
-            <label className="block text-xs font-bold text-muted-foreground mb-1.5">{label}</label>
+            <label className="block text-xs font-bold text-muted-foreground mb-1.5">{label}{required && <span className="text-rose-500"> *</span>}</label>
             {children}
         </div>
     );
