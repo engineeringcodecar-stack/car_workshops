@@ -258,6 +258,11 @@ html[dir=rtl] .step-top i{background:linear-gradient(270deg,rgba(199,39,49,.6),r
 .svc-card{flex:1.25 1 440px;min-width:0;position:relative;overflow:hidden;border-radius:16px;border:1px solid var(--line);background:#17191D;min-height:520px;display:flex;flex-direction:column;justify-content:flex-end;padding:clamp(24px,3.4vw,44px)}
 .bg-b{opacity:.7}
 .svc-panel{display:contents}
+/* The picture fills the upper three quarters of the card and fades into it, so the subject
+   stays above the title instead of behind it. */
+.svc-img{position:absolute;top:0;left:0;width:100%;height:76%;max-width:none;object-fit:cover;object-position:var(--fx,50%) var(--fy,40%);animation:fade .7s ease}
+.svc-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(13,14,17,.4) 0%,rgba(13,14,17,.08) 20%,rgba(13,14,17,.2) 42%,rgba(13,14,17,.86) 62%,#0D0E11 76%)}
+.svc-shade~.svc-big{-webkit-text-stroke-color:rgba(229,68,78,.38)}
 .svc-big{position:absolute;top:clamp(16px,2.6vw,36px);inset-inline-end:clamp(20px,3vw,40px);font:800 clamp(120px,16vw,220px)/1 'Exo 2',sans-serif;color:transparent;-webkit-text-stroke:1px rgba(229,68,78,.55);animation:hc-rise .8s var(--ease)}
 .svc-code{position:absolute;top:clamp(20px,3vw,40px);inset-inline-start:clamp(24px,3.4vw,44px);font:500 11px/1 var(--m);letter-spacing:.2em;color:#A9ADB4}
 .svc-text{position:relative;display:flex;flex-direction:column;gap:18px}
@@ -267,6 +272,10 @@ html[dir=rtl] .step-top i{background:linear-gradient(270deg,rgba(199,39,49,.6),r
 .svc-inc>span{font:500 11px/1 var(--m);letter-spacing:.14em;color:#A9ADB4}
 .svc-inc>div{display:flex;flex-wrap:wrap;gap:8px}
 .svc-inc>div span{padding:8px 12px;border-radius:999px;border:1px solid rgba(245,245,244,.16);background:rgba(8,9,11,.5);font-size:14px}
+/* Tyre brands in the tyres card: the same light chips as the agencies band, smaller */
+.svc-brands>div .ag{height:42px;padding:0 14px;border-radius:10px;border:0;background:#F3F3F1}
+.svc-brands>div .ag img{height:calc(var(--h) * 1.2)}
+.svc-brands>div .ag-txt{font:800 15px/1 'Exo 2',sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#0B0C0F}
 
 /* Inspection */
 .bg-faint{opacity:.35}
@@ -512,6 +521,11 @@ html h1,html[dir=ltr] h1{font-size:clamp(34px,10.4vw,46px)}
 .ag img{height:calc(var(--h) * .78)}
 .agencies .label span:first-child{display:none}
 .net{min-height:340px}
+/* Phones: the service picture is a band across the top of the card with the text under it,
+   so nearly the whole picture shows and the title does not sit on its subject. */
+.svc-card{padding-top:232px}
+.svc-img{height:258px}
+.svc-shade{background:linear-gradient(180deg,rgba(13,14,17,.4) 0,rgba(13,14,17,.05) 64px,rgba(13,14,17,.16) 168px,#0D0E11 256px)}
 .wa{width:54px;padding:0;justify-content:center}
 .wa span{display:none}
 .pass-visual{flex-basis:100%;min-width:0;max-width:360px;height:540px}

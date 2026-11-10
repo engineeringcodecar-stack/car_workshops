@@ -62,6 +62,20 @@ if("IntersectionObserver"in w){
   });
 }
 
+/* Service pictures: once the services card is on screen, fetch the other services' pictures
+   too, so switching service does not wait on a download. Only with a mouse, where hovering
+   the list flips through them; on a phone each one loads when its service is tapped, which
+   spares mobile data. */
+var svcCard=$(".svc-card");
+if(svcCard&&"IntersectionObserver"in w&&matchMedia("(hover: hover)").matches&&!net.saveData){
+  var svcIo=new IntersectionObserver(function(es){
+    if(!es[0].isIntersecting)return;
+    svcIo.disconnect();
+    setTimeout(function(){$$(".svc-img,.svc-brands img").forEach(function(i){i.loading="eager"})},800);
+  });
+  svcIo.observe(svcCard);
+}
+
 /* Curtain between sections and between languages */
 var cur=$(".curtain"),menu=$(".menu"),burger=$(".nav-burger"),ct;
 function curtain(mid){

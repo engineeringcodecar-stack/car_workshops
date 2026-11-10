@@ -1,4 +1,4 @@
-import { AGENCIES, CONTENT, HOTSPOTS, INFO_EMAIL, INVEST_EMAIL, PRODUCT_IMAGES, RELATIONS_PHONE, SOCIALS, WHATSAPP, type Lang } from "./content";
+import { AGENCIES, CONTENT, HOTSPOTS, INFO_EMAIL, INVEST_EMAIL, PRODUCT_IMAGES, RELATIONS_PHONE, SERVICE_IMAGES, SOCIALS, TYRE_BRANDS, WHATSAPP, type Lang } from "./content";
 import { LOGO_BOTTOM, LOGO_TOP, LOGO_VIEWBOX } from "./logoPaths";
 import { BOOT, SCRIPT } from "./script";
 import { STYLES } from "./styles";
@@ -16,6 +16,18 @@ const logo = (cls = "") =>
 const label = (text: string) => `<div class="label"><span></span><span>${esc(text)}</span></div>`;
 
 const NODES: [number, number][] = [[19, 26], [81, 26], [19, 74], [81, 74]];
+
+// The picture behind a service card, with a shade over it so the text stays readable.
+// A service without a picture keeps the plain card.
+function svcImage(i: number) {
+    const im = SERVICE_IMAGES[i];
+    if (!im) return "";
+    const [file, fx, fy, sized] = im;
+    const src = sized
+        ? `src="/site/${file}-1200.webp" srcset="/site/${file}-720.webp 720w, /site/${file}-1200.webp 1200w" sizes="(max-width: 899px) 100vw, 56vw" width="1200" height="900"`
+        : `src="/site/${file}.webp" width="720" height="540"`;
+    return `<img class="svc-img" ${src} alt="" style="--fx:${fx}%;--fy:${fy}%" loading="lazy" decoding="async"><div class="svc-shade"></div>`;
+}
 
 function body(lang: Lang) {
     const c = CONTENT[lang];
@@ -147,12 +159,16 @@ function body(lang: Lang) {
             <div data-reveal="1" data-delay="120" class="svc-card">
                 <img class="bg" src="/site/texture.webp" alt="" loading="lazy"><img class="bg bg-b" src="/site/blueprint.svg" alt="" loading="lazy">
                 ${each(c.services.items, (s, i) => `<div class="svc-panel" data-panel="svc:${i}"${i ? " hidden" : ""}>
+                    ${svcImage(i)}
                     <div class="svc-big" dir="ltr">${pad(i + 1)}</div>
                     <div class="svc-code" dir="ltr">SERVICE / ${pad(i + 1)} / 08</div>
                     <div class="svc-text">
                         <h3>${esc(s.name)}</h3>
                         <p>${esc(s.desc)}</p>
                         <div class="svc-inc"><span>${esc(c.services.includes)}</span><div>${each(s.inc, (x) => `<span>${esc(x)}</span>`)}</div></div>
+                        ${"brands" in s && s.brands ? `<div class="svc-inc svc-brands"><span>${esc(s.brands)}</span><div>${each(TYRE_BRANDS, ([name, file, w, h]) => file
+                            ? `<span class="ag"><img src="/site/brands/${file}" width="${w}" height="${h}" alt="${esc(name)}" style="--h:${Math.min(30, Math.round(Math.sqrt(2000 * h / w)))}px" loading="lazy" decoding="async"></span>`
+                            : `<span class="ag ag-txt" dir="ltr">${esc(name)}</span>`)}</div></div>` : ""}
                         <a class="btn btn-ghost btn-sm" href="#branches">${esc(c.services.branchesCta)}</a>
                     </div>
                 </div>`)}

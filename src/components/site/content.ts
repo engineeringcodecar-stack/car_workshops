@@ -41,8 +41,33 @@ const HOTSPOTS_ON_IMAGE: [number, number][] = [
 ];
 export const HOTSPOTS: [number, number][] = HOTSPOTS_ON_IMAGE.map(([x, y]) => [x, +(50 + (y - 50) * 1.1364).toFixed(1)]);
 
+/** Tyre brands the branches stock: name, logo in /site/brands/ and the logo's own size. */
+export const TYRE_BRANDS: [string, string | null, number, number][] = [
+    ["Sailun", "sailun.webp", 480, 80],
+    ["Hankook", "hankook.svg", 1440, 175],
+    ["Accelera", "accelera.webp", 480, 52],
+];
+
 /** Which products/ image goes with each entry in `products.items`. */
 export const PRODUCT_IMAGES = ["oils", "filters", "tyres", "parts"];
+
+/**
+ * Picture behind each entry in `services.items`: path under /site/ without the extension,
+ * where its subject sits across the width and down the height (the card crops the sides on
+ * phones and the top and bottom on wide screens), and whether it comes in two sizes (-720
+ * and -1200). Cooling has no picture yet, and brakes and tyres borrow the product shots
+ * until their own are made.
+ */
+export const SERVICE_IMAGES: ([string, number, number, boolean] | null)[] = [
+    ["services/oil", 45, 30, true],
+    ["services/diagnostics", 42, 40, true],
+    ["services/vibration", 60, 35, true],
+    ["services/alignment", 46, 50, true],
+    ["services/transmission", 34, 40, true],
+    null,
+    ["products/parts", 50, 45, false],
+    ["products/tyres", 50, 45, false],
+];
 
 const AR = {
     meta: {
@@ -108,13 +133,13 @@ const AR = {
         branchesCta: "شاهد الفروع",
         items: [
             { name: "تبديل الزيت والفلاتر", desc: "تبديل زيت المحرك بزيوت من وكالاتنا الرسمية، مع فلاتر الزيت والهواء والبنزين والتبريد، وفق مواصفات الشركة المصنّعة.", inc: ["زيت المحرك", "فلتر الزيت", "فلتر الهواء", "فلتر البنزين", "فلتر التبريد"] },
-            { name: "تشخيص الأعطال إلكترونياً", desc: "قراءة أكواد الأعطال والبيانات الحية من وحدات التحكم لتحديد السبب قبل أي إصلاح.", inc: ["قراءة الأكواد", "بيانات الحساسات", "تحديد العطل"] },
+            { name: "تشخيص الأعطال إلكترونياً", desc: "قراءة أكواد الأعطال والبيانات الحية من وحدات التحكم بأجهزة Launch، لتحديد السبب قبل أي إصلاح.", inc: ["أجهزة Launch", "قراءة الأكواد", "بيانات الحساسات", "تحديد العطل"] },
             { name: "فحص الاهتزاز الإلكتروني", desc: "قياس الاهتزازات وتحديد مصدرها: الإطارات، أو أعمدة الدوران، أو المحرك، أو ناقل الحركة.", inc: ["قياس بالسرعات", "تحديد المصدر", "توصية"] },
-            { name: "ضبط زوايا العجلات (الميزانية)", desc: "فحص الميزانية مجاناً، وضبط زوايا العجلات لثبات القيادة وتقليل تآكل الإطارات.", inc: ["فحص مجاني", "قياس الزوايا", "الضبط"] },
+            { name: "ضبط زوايا العجلات (الميزانية)", desc: "فحص الميزانية مجاناً، وضبط زوايا العجلات بجهاز FASEP الإيطالي لثبات القيادة وتقليل تآكل الإطارات.", inc: ["جهاز FASEP الإيطالي", "فحص مجاني", "قياس الزوايا", "الضبط"] },
             { name: "تبديل زيت ناقل الحركة", desc: "تبديل زيت ناقل الحركة الأوتوماتيكي بالنوع والكمية المحددين للسيارة.", inc: ["زيت ناقل الحركة", "فحص التسريب"] },
-            { name: "خدمة منظومة التبريد", desc: "فحص سائل التبريد وتبديله، وفحص المبرّد والخراطيم والمروحة.", inc: ["سائل التبريد", "المبرّد", "الخراطيم"] },
-            { name: "خدمة منظومة الفرامل", desc: "تبديل زيت الفرامل وفحص الفحمات والأقراص.", inc: ["زيت الفرامل", "الفحمات", "الأقراص"] },
-            { name: "الإطارات", desc: "فحص الإطارات وضغط الهواء والتآكل، والتبديل عند الحاجة.", inc: ["ضغط الهواء", "التآكل", "الترصيص"] },
+            { name: "تبديل ماء الراديتر بالجهاز", desc: "تبديل ماء الراديتر بالجهاز، مع فحص الراديتر والخراطيم والمروحة.", inc: ["ماء الراديتر", "تبديل بالجهاز", "فحص الخراطيم"] },
+            { name: "الفرامل", desc: "تصفير الفلنجات، وتبديل الدسكات، وتبديل زيت الفرامل.", inc: ["تصفير فلنجات", "تبديل دسكات", "تبديل زيت الفرامل"] },
+            { name: "الإطارات", desc: "إطارات Sailun وHankook وAccelera، مع فحص ضغط الهواء والتآكل والترصيص.", inc: ["ضغط الهواء", "التآكل", "الترصيص"], brands: "العلامات" },
         ],
     },
     inspect: {
@@ -138,9 +163,9 @@ const AR = {
     tech: {
         title: "أجهزة تشخيص حديثة، وقرارات مبنية على القراءة لا على التخمين.",
         items: [
-            ["أجهزة تشخيص بالكمبيوتر", "قراءة أكواد الأعطال والبيانات الحية من وحدات التحكم الإلكترونية في السيارة."],
+            ["أجهزة تشخيص بالكمبيوتر", "أجهزة Launch لقراءة أكواد الأعطال والبيانات الحية من وحدات التحكم الإلكترونية في السيارة."],
             ["محلل الاهتزاز الإلكتروني", "تحديد مصدر الاهتزاز بالقياس، بدل التبديل العشوائي للقطع."],
-            ["منظومة ضبط زوايا العجلات", "قياس زوايا العجلات وضبطها بدقة."],
+            ["منظومة ضبط زوايا العجلات", "جهاز FASEP الإيطالي لقياس زوايا العجلات وضبطها بدقة."],
             ["معدات تبديل السوائل", "تبديل زيت ناقل الحركة وسائل التبريد وزيت الفرامل بطريقة نظيفة وبكمية مضبوطة."],
         ],
     },
@@ -149,7 +174,7 @@ const AR = {
         items: [
             { name: "الزيوت وسوائل التشغيل", body: "ليكوي مولي، كاسترول، موبل 1، فالفولين وميغوين، من وكالاتنا الرسمية وبمواصفات الشركة المصنّعة.", alt: "عبوة زيت محرك" },
             { name: "الفلاتر", body: "فلاتر الزيت والهواء والبنزين والتبريد، من علامات مثل Denckermann وK&N.", alt: "فلتر زيت وفلتر هواء" },
-            { name: "الإطارات", body: "مع خدمة الترصيص وضبط الزوايا.", alt: "إطار سيارة" },
+            { name: "الإطارات", body: "Sailun وHankook وAccelera، مع خدمة الترصيص وضبط الزوايا.", alt: "إطار سيارة" },
             { name: "البطاريات وقطع الصيانة", body: "بطاريات ECO بضمان استبدال، وفحمات وأقراص الفرامل، وقطع الصيانة الدورية.", alt: "قرص فرامل وفحمات" },
         ],
     },
@@ -284,13 +309,13 @@ const EN: SiteContent = {
         branchesCta: "See branches",
         items: [
             { name: "Oil & filters", desc: "Engine oil from our official agencies, with oil, air, fuel and AC filters, to manufacturer specification.", inc: ["Engine oil", "Oil filter", "Air filter", "Fuel filter", "AC filter"] },
-            { name: "Computer diagnostics", desc: "Reading fault codes and live data from the control units to find the cause before any repair.", inc: ["Fault codes", "Live sensor data", "Fault location"] },
+            { name: "Computer diagnostics", desc: "Reading fault codes and live data from the control units with Launch scanners, to find the cause before any repair.", inc: ["Launch scanners", "Fault codes", "Live sensor data", "Fault location"] },
             { name: "Electronic vibration testing", desc: "Measuring vibration and locating its source: tyres, driveshafts, engine or transmission.", inc: ["Speed-range readings", "Source location", "Recommendation"] },
-            { name: "Wheel alignment", desc: "A free alignment check, then setting wheel angles for stable driving and even tyre wear.", inc: ["Free check", "Angle measurement", "Adjustment"] },
+            { name: "Wheel alignment", desc: "A free alignment check, then setting wheel angles on an Italian FASEP aligner for stable driving and even tyre wear.", inc: ["Italian FASEP aligner", "Free check", "Angle measurement", "Adjustment"] },
             { name: "Automatic transmission fluid", desc: "Automatic transmission fluid exchange with the correct type and quantity for the vehicle.", inc: ["ATF", "Leak check"] },
-            { name: "Cooling system service", desc: "Coolant check and replacement, with radiator, hose and fan inspection.", inc: ["Coolant", "Radiator", "Hoses"] },
-            { name: "Brake system service", desc: "Brake fluid replacement and inspection of pads and discs.", inc: ["Brake fluid", "Pads", "Discs"] },
-            { name: "Tyres", desc: "Tyre inspection for pressure and wear, with replacement when needed.", inc: ["Pressure", "Wear", "Balancing"] },
+            { name: "Machine coolant exchange", desc: "Radiator coolant exchanged by machine, with radiator, hose and fan inspection.", inc: ["Coolant", "Machine exchange", "Hose check"] },
+            { name: "Brakes", desc: "Disc resurfacing, brake pad replacement and brake fluid replacement.", inc: ["Disc resurfacing", "Pad replacement", "Brake fluid"] },
+            { name: "Tyres", desc: "Sailun, Hankook and Accelera tyres, with pressure, wear and balancing checks.", inc: ["Pressure", "Wear", "Balancing"], brands: "BRANDS" },
         ],
     },
     inspect: {
@@ -314,9 +339,9 @@ const EN: SiteContent = {
     tech: {
         title: "Modern diagnostic equipment, and decisions based on readings, not guesses.",
         items: [
-            ["Computer diagnostic scanners", "Reading fault codes and live data from the vehicle's electronic control units."],
+            ["Computer diagnostic scanners", "Launch scanners that read fault codes and live data from the vehicle's electronic control units."],
             ["Electronic vibration analyser", "Locating vibration by measurement instead of replacing parts at random."],
-            ["Wheel alignment system", "Accurate measurement and setting of wheel angles."],
+            ["Wheel alignment system", "An Italian FASEP aligner for accurate measurement and setting of wheel angles."],
             ["Fluid exchange equipment", "Clean, measured exchange of transmission fluid, coolant and brake fluid."],
         ],
     },
@@ -325,7 +350,7 @@ const EN: SiteContent = {
         items: [
             { name: "Oils & operating fluids", body: "Liqui Moly, Castrol, Mobil 1, Valvoline and MEGUIN, from our official agencies and to manufacturer specification.", alt: "Engine oil container" },
             { name: "Filters", body: "Oil, air, fuel and AC filters, from brands including Denckermann and K&N.", alt: "Oil filter and air filter" },
-            { name: "Tyres", body: "With balancing and wheel alignment.", alt: "Car tyre" },
+            { name: "Tyres", body: "Sailun, Hankook and Accelera, with balancing and wheel alignment.", alt: "Car tyre" },
             { name: "Batteries & service parts", body: "ECO batteries with a replacement warranty, brake pads and discs, and routine service parts.", alt: "Brake disc and pads" },
         ],
     },
