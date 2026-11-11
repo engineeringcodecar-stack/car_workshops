@@ -28,6 +28,33 @@ function frame(){
 function tick(){if(!raf)raf=requestAnimationFrame(frame)}
 w.addEventListener("scroll",tick,{passive:true});w.addEventListener("resize",tick);frame();
 
+/* Smooth wheel scrolling: a mouse wheel notch sets a target and the page eases to it instead
+   of jumping. Only real wheel notches are taken over. Trackpads, touch, the keyboard and the
+   scrollbar are smooth already and stay native, and so does anything that scrolls by itself
+   (the open menu). If something else moves the page meanwhile, the easing lets go.
+   It runs with reduced motion too, like the hero video: the owner wants it for everyone. */
+var sT=0,sY=0,sSet=-1,sOn=false,sAt=0;
+function sStep(now){
+  if(Math.abs(w.scrollY-sSet)>2){sOn=false;return}
+  var k=1-Math.pow(.88,Math.max(1,now-sAt)/16.7);sAt=now;
+  sY+=(sT-sY)*k;
+  if(Math.abs(sT-sY)<.5)sY=sT;
+  w.scrollTo(0,sY);sSet=w.scrollY;
+  if(sY==sT)sOn=false;else requestAnimationFrame(sStep);
+}
+w.addEventListener("wheel",function(e){
+  if(e.ctrlKey||e.defaultPrevented||Math.abs(e.deltaX)>Math.abs(e.deltaY))return;
+  if(!(e.deltaMode==1||(e.wheelDeltaY&&e.wheelDeltaY%120==0&&Math.abs(e.deltaY)>=40)))return;
+  for(var n=e.target;n&&n.nodeType==1&&n!==d.documentElement;n=n.parentNode){
+    var o=getComputedStyle(n).overflowY;
+    if((o=="auto"||o=="scroll")&&n.scrollHeight>n.clientHeight+1)return;
+  }
+  e.preventDefault();
+  if(!sOn)sT=sY=w.scrollY;
+  sT=Math.max(0,Math.min(d.documentElement.scrollHeight-w.innerHeight,sT+e.deltaY*(e.deltaMode==1?40:1)));
+  if(!sOn){sOn=true;sSet=w.scrollY;sAt=performance.now();requestAnimationFrame(sStep)}
+},{passive:false});
+
 /* Hero video: starts as soon as the hero image itself has loaded, so it never competes
    with it, and never with data saver or a 2G connection. It also plays with reduced motion
    (the owner's choice): the camera is fixed and the picture does not move. Phones get the
