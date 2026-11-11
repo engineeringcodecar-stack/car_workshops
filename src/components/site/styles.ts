@@ -159,6 +159,11 @@ html[dir=rtl] .hero-tag{text-align:end}
 .ag-dark{background:#14161A;box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
 .ag img{display:block;height:var(--h);width:auto}
 .agencies-track-wrap:hover .agencies-track{animation-play-state:paused}
+/* The strip can be dragged sideways (script.ts). The logos themselves must not be picked up
+   as images, which is what a browser does with a dragged <img>. */
+.agencies-track-wrap{cursor:grab;user-select:none;-webkit-user-select:none;touch-action:pan-y}
+.agencies-track-wrap.drag{cursor:grabbing}
+.ag img{-webkit-user-drag:none;user-select:none;-webkit-user-select:none}
 .has-ag .hero-foot{bottom:88px}
 .has-ag .hero-inner{padding-bottom:150px}
 html[dir=rtl] .agencies .label{letter-spacing:0;font:500 13px/1 'IBM Plex Sans Arabic',sans-serif}
@@ -545,7 +550,7 @@ html h1,html[dir=ltr] h1{font-size:clamp(34px,10.4vw,46px)}
 @media(prefers-reduced-motion:reduce){
 /* Reduced, not removed: fades and small loops stay, anything travelling across the screen goes. The intro is under a second, and the logo reveal is the point of it. */
 .marquee>div,.agencies-track{animation:none}
-.agencies-track-wrap{overflow-x:auto;scrollbar-width:none}
+.agencies-track-wrap{overflow-x:auto;scrollbar-width:none;touch-action:auto}
 .line>span,.hero-eyebrow,.hero-sub,.hero-pillars,.hero-cta{animation-name:fade}
 .pre{transform:none;filter:none}
 .book{transform:none;transition:none}

@@ -62,6 +62,39 @@ if("IntersectionObserver"in w){
   });
 }
 
+/* Agencies strip: drag it sideways. While the marquee is running, the drag moves the
+   animation's own clock, so the strip follows the pointer and carries on from where it was
+   left. Where the strip is a plain scrollable row (reduced motion), a mouse drag scrolls it
+   and a finger scrolls it natively. */
+var agW=$(".agencies-track-wrap"),agT=$(".agencies-track");
+if(agW&&agT){
+  var agOn=false,agX=0,ag0=0,agA=null;
+  var agAnim=function(){return(agT.getAnimations&&agT.getAnimations()[0])||null};
+  agW.addEventListener("pointerdown",function(e){
+    if(e.button)return;
+    agA=agAnim();
+    if(!agA&&e.pointerType!="mouse")return;
+    agOn=true;agX=e.clientX;
+    if(agA){agA.pause();ag0=+agA.currentTime||0}else ag0=agW.scrollLeft;
+    agW.setPointerCapture(e.pointerId);agW.classList.add("drag");
+  });
+  agW.addEventListener("pointermove",function(e){
+    if(!agOn)return;
+    var dx=e.clientX-agX;
+    if(agA){var dur=agA.effect.getComputedTiming().duration,half=agT.offsetWidth/2;agA.currentTime=((ag0-dx/half*dur)%dur+dur)%dur}
+    else agW.scrollLeft=ag0-dx;
+  });
+  var agEnd=function(e){
+    if(!agOn)return;
+    agOn=false;agW.classList.remove("drag");
+    if(agA&&(e.pointerType!="mouse"||!agW.matches(":hover")))agA.play();
+  };
+  agW.addEventListener("pointerup",agEnd);agW.addEventListener("pointercancel",agEnd);
+  /* The same pause-on-hover the stylesheet gives, kept in step with the drag above */
+  agW.addEventListener("mouseenter",function(){var a=agAnim();if(a)a.pause()});
+  agW.addEventListener("mouseleave",function(){var a=agAnim();if(a&&!agOn)a.play()});
+}
+
 /* Service pictures: once the services card is on screen, fetch the other services' pictures
    too, so switching service does not wait on a download. Only with a mouse, where hovering
    the list flips through them; on a phone each one loads when its service is tapped, which

@@ -52,21 +52,19 @@ export const TYRE_BRANDS: [string, string | null, number, number][] = [
 export const PRODUCT_IMAGES = ["oils", "filters", "tyres", "parts"];
 
 /**
- * Picture behind each entry in `services.items`: path under /site/ without the extension,
- * where its subject sits across the width and down the height (the card crops the sides on
- * phones and the top and bottom on wide screens), and whether it comes in two sizes (-720
- * and -1200). Cooling has no picture yet, and brakes and tyres borrow the product shots
- * until their own are made.
+ * Picture behind each entry in `services.items`: file name in /site/services/ (each comes in
+ * two sizes, -720 and -1200) and where its subject sits across the width and down the height.
+ * The card crops the sides on phones and the top and bottom on wide screens.
  */
-export const SERVICE_IMAGES: ([string, number, number, boolean] | null)[] = [
-    ["services/oil", 45, 30, true],
-    ["services/diagnostics", 42, 40, true],
-    ["services/vibration", 60, 35, true],
-    ["services/alignment", 46, 50, true],
-    ["services/transmission", 34, 40, true],
-    null,
-    ["products/parts", 50, 45, false],
-    ["products/tyres", 50, 45, false],
+export const SERVICE_IMAGES: [string, number, number][] = [
+    ["oil", 45, 30],
+    ["diagnostics", 42, 40],
+    ["vibration", 60, 35],
+    ["alignment", 46, 50],
+    ["transmission", 34, 40],
+    ["cooling", 30, 20],
+    ["brakes", 58, 25],
+    ["tyres", 45, 20],
 ];
 
 const AR = {

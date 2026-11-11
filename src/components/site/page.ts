@@ -18,15 +18,10 @@ const label = (text: string) => `<div class="label"><span></span><span>${esc(tex
 const NODES: [number, number][] = [[19, 26], [81, 26], [19, 74], [81, 74]];
 
 // The picture behind a service card, with a shade over it so the text stays readable.
-// A service without a picture keeps the plain card.
 function svcImage(i: number) {
-    const im = SERVICE_IMAGES[i];
-    if (!im) return "";
-    const [file, fx, fy, sized] = im;
-    const src = sized
-        ? `src="/site/${file}-1200.webp" srcset="/site/${file}-720.webp 720w, /site/${file}-1200.webp 1200w" sizes="(max-width: 899px) 100vw, 56vw" width="1200" height="900"`
-        : `src="/site/${file}.webp" width="720" height="540"`;
-    return `<img class="svc-img" ${src} alt="" style="--fx:${fx}%;--fy:${fy}%" loading="lazy" decoding="async"><div class="svc-shade"></div>`;
+    const [file, fx, fy] = SERVICE_IMAGES[i];
+    const base = `/site/services/${file}`;
+    return `<img class="svc-img" src="${base}-1200.webp" srcset="${base}-720.webp 720w, ${base}-1200.webp 1200w" sizes="(max-width: 899px) 100vw, 56vw" width="1200" height="900" alt="" style="--fx:${fx}%;--fy:${fy}%" loading="lazy" decoding="async"><div class="svc-shade"></div>`;
 }
 
 function body(lang: Lang) {
@@ -101,7 +96,7 @@ function body(lang: Lang) {
         <div class="agencies-track-wrap" dir="ltr"><div class="agencies-track">${each(
             [...AGENCIES, ...AGENCIES, ...AGENCIES, ...AGENCIES],
             // Logos are sized to roughly equal area, so wide and square marks look balanced.
-            ([name, file, w, h, dark], i) => `<span class="ag${dark ? " ag-dark" : ""}"${i >= AGENCIES.length ? ' aria-hidden="true"' : ""}><img src="/site/agencies/${file}" width="${w}" height="${h}" alt="${i >= AGENCIES.length ? "" : esc(name)}" style="--h:${Math.min(34, Math.round(Math.sqrt(2300 * h / w)))}px" decoding="async"></span>`,
+            ([name, file, w, h, dark], i) => `<span class="ag${dark ? " ag-dark" : ""}"${i >= AGENCIES.length ? ' aria-hidden="true"' : ""}><img src="/site/agencies/${file}" draggable="false" width="${w}" height="${h}" alt="${i >= AGENCIES.length ? "" : esc(name)}" style="--h:${Math.min(34, Math.round(Math.sqrt(2300 * h / w)))}px" decoding="async"></span>`,
         )}</div></div>
     </div>
 </header>
@@ -167,7 +162,7 @@ function body(lang: Lang) {
                         <p>${esc(s.desc)}</p>
                         <div class="svc-inc"><span>${esc(c.services.includes)}</span><div>${each(s.inc, (x) => `<span>${esc(x)}</span>`)}</div></div>
                         ${"brands" in s && s.brands ? `<div class="svc-inc svc-brands"><span>${esc(s.brands)}</span><div>${each(TYRE_BRANDS, ([name, file, w, h]) => file
-                            ? `<span class="ag"><img src="/site/brands/${file}" width="${w}" height="${h}" alt="${esc(name)}" style="--h:${Math.min(30, Math.round(Math.sqrt(2000 * h / w)))}px" loading="lazy" decoding="async"></span>`
+                            ? `<span class="ag"><img src="/site/brands/${file}" draggable="false" width="${w}" height="${h}" alt="${esc(name)}" style="--h:${Math.min(30, Math.round(Math.sqrt(2000 * h / w)))}px" loading="lazy" decoding="async"></span>`
                             : `<span class="ag ag-txt" dir="ltr">${esc(name)}</span>`)}</div></div>` : ""}
                         <a class="btn btn-ghost btn-sm" href="#branches">${esc(c.services.branchesCta)}</a>
                     </div>
