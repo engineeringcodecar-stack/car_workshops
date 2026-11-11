@@ -50,6 +50,12 @@ export function proxy(request: NextRequest) {
         .getAll()
         .some((c) => c.name.startsWith("sb-") && c.name.includes("auth-token"));
 
+    // `/admin` is the address given to branch staff. The public site has no login link, so
+    // they need one address that always leads into the system.
+    if (pathname === "/admin" || pathname === "/admin/") {
+        return NextResponse.redirect(new URL(hasSupabaseSession ? "/dashboard" : "/login", request.url));
+    }
+
     // "/" is the public site for visitors; signed-in staff go straight to work.
     if (pathname === "/") {
         return hasSupabaseSession
