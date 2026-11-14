@@ -1,5 +1,6 @@
 import React, { forwardRef } from 'react';
 import BookletCodes from '@/components/BookletCodes';
+import { hiddenMainServices, serviceInUse } from '@/lib/reception';
 
 interface PrintableInspectionReportProps {
     report: any;
@@ -266,6 +267,11 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
         { key: 'additives', label: 'المضافات والمحسنات', fields: [] },
     ];
 
+    // Services the branch does not offer are left off its printed order, unless filled in.
+    const hiddenServices = hiddenMainServices(report?.branches?.name);
+    const lines = s as Record<string, { status?: string; price?: string } | undefined>;
+    SERVICES = SERVICES.filter(svc => !hiddenServices.includes(svc.key) || serviceInUse(lines[svc.key]));
+
     if (mode === 'short') {
         SERVICES = SERVICES.filter(svc => {
             const status = (s as any)[svc.key]?.status;
@@ -513,7 +519,7 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
                         </span>
                         <span style={{ fontSize: '11px', color: '#94a3b8' }}>
                             {/* ↑ was 10px → 11px */}
-                            {isSectorBranch ? `${flatSectorServices.length} خدمة أساسية` : '14 خدمة أساسية'}
+                            {isSectorBranch ? `${flatSectorServices.length} خدمة أساسية` : `${14 - hiddenServices.filter(k => !serviceInUse(lines[k])).length} خدمة أساسية`}
                         </span>
                     </div>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', tableLayout: 'fixed' }}>

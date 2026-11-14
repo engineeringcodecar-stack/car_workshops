@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { useAuth } from "@/lib/AuthProvider";
@@ -17,6 +17,7 @@ import { emptyInspection } from "@/lib/comprehensiveInspection";
 import { syncOrderToGoogleSheets } from "@/lib/googleSheetsSync";
 import { useContracts } from "@/lib/contracts";
 import ContractBanner from "@/components/ContractBanner";
+import { matchSavedCar, defaultSavedCar, type SavedCar } from "@/lib/reception";
 
 type Step = 1 | 2 | 3;
 
@@ -516,6 +517,10 @@ export default function SectorReception({
     const [make, setMake] = useState("");
     const [model, setModel] = useState("");
     const [engineSize, setEngineSize] = useState("");
+    // The returning customer's saved cars, and the engine size the form last filled in by
+    // itself, so the box can follow the car being typed without overwriting a typed value.
+    const [clientVehicles, setClientVehicles] = useState<SavedCar[]>([]);
+    const filledEngine = useRef("");
     const [odometer, setOdometer] = useState("");
     const [odometerUnit, setOdometerUnit] = useState<'km' | 'mi'>('km');
     // Future odometer = current reading + a service interval (km auto-converted to miles).
@@ -772,8 +777,9 @@ export default function SectorReception({
     }, []);
 
     useEffect(() => {
-        if (!phone || phone.length < 3) { setClientSuggestions([]); return; }
+        if (!phone || phone.length < 3) { setClientSuggestions([]); setClientVehicles([]); return; }
         if (selectedClientId) return;
+        let cancelled = false;
         const searchClient = async () => {
             setIsSearchingClient(true);
             // A scanner types the whole booklet URL — reduce it to the serial first.
@@ -795,11 +801,15 @@ export default function SectorReception({
                     .ilike('phone', `%${normalizePhone(phone)}%`)
                     .limit(5);
                 setClientSuggestions(data || []);
+                // The whole number typed by hand, without picking the name from the list:
+                // it is still this customer, so their saved cars are known.
+                const exact = (data || []).filter(c => normalizePhone(c.phone || "") === normalizePhone(phone));
+                if (!cancelled) setClientVehicles(exact.length === 1 ? exact[0].vehicles || [] : []);
             }
             setIsSearchingClient(false);
         };
         const timeout = setTimeout(searchClient, 500);
-        return () => clearTimeout(timeout);
+        return () => { cancelled = true; clearTimeout(timeout); };
     }, [phone, selectedClientId]);
 
     const selectSuggestion = (client: any) => {
@@ -807,13 +817,30 @@ export default function SectorReception({
         setName(client.name);
         setSelectedClientId(client.id);
         setClientSuggestions([]);
-        if (client.vehicles && client.vehicles.length > 0) {
-            const v = client.vehicles[0];
+        setClientVehicles(client.vehicles || []);
+        const v = defaultSavedCar(client.vehicles || []);
+        if (v) {
             setMake(v.make || ""); setModel(v.model || "");
             setEngineSize(v.engine_size || ""); setPlateNumber(v.plate_number || "");
             setBookletSerial(v.booklet_serial || "");
+            filledEngine.current = (v.engine_size || "").trim();
         }
     };
+
+    // Returning customer: the engine size comes from their saved car. It follows the car
+    // being typed (same plate, else same make and model), and only replaces an empty box or
+    // a value this form filled in itself, never one the receptionist typed.
+    useEffect(() => {
+        const car = matchSavedCar(clientVehicles, plateNumber, make, model);
+        if (!car) return;
+        const size = (car.engine_size || "").trim();
+        const current = engineSize.trim();
+        if (current === size || (current !== "" && current !== filledEngine.current)) return;
+        setEngineSize(size);
+        filledEngine.current = size;
+    // Deliberately not run when the box itself is edited, so it can be cleared and retyped.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [clientVehicles, plateNumber, make, model]);
 
     const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setPhone(e.target.value);
@@ -823,6 +850,8 @@ export default function SectorReception({
         if (selectedClientId) {
             setSelectedClientId(null);
             setName(""); setMake(""); setModel(""); setPlateNumber(""); setBookletSerial("");
+            // The previous customer's engine size must not carry over to the next one.
+            setEngineSize(""); setClientVehicles([]); filledEngine.current = "";
         }
     };
 

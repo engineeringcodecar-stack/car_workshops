@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { useAuth } from "@/lib/AuthProvider";
@@ -16,6 +16,7 @@ import { PrintableInspectionReport } from "@/components/PrintableInspectionRepor
 import { syncOrderToGoogleSheets } from "@/lib/googleSheetsSync";
 import { useContracts } from "@/lib/contracts";
 import ContractBanner from "@/components/ContractBanner";
+import { hiddenMainServices, serviceInUse, matchSavedCar, defaultSavedCar, type SavedCar } from "@/lib/reception";
 
 type Step = 1 | 2 | 3;
 
@@ -537,6 +538,10 @@ export default function StandardReception({
     const [make, setMake] = useState("");
     const [model, setModel] = useState("");
     const [engineSize, setEngineSize] = useState("");
+    // The returning customer's saved cars, and the engine size the form last filled in by
+    // itself, so the box can follow the car being typed without overwriting a typed value.
+    const [clientVehicles, setClientVehicles] = useState<SavedCar[]>([]);
+    const filledEngine = useRef("");
     const [odometer, setOdometer] = useState("");
     const [odometerUnit, setOdometerUnit] = useState<'km' | 'mi'>('km');
     // Future odometer = current reading + a service interval. Quick buttons add the interval
@@ -593,8 +598,12 @@ export default function StandardReception({
     // code depends on how it is spelled in the branches table.
     const hasCarWash = /المجر|الكراج/.test(branches.find(b => b.id === selectedBranchId)?.name || '');
 
+    // Services this branch does not offer are left out, unless the order already has them filled in.
+    const hiddenServiceKeys = hiddenMainServices(branches.find(b => b.id === selectedBranchId)?.name)
+        .filter(k => !serviceInUse(services[k])).join(',');
+
     const activeServicesList = useMemo(() => {
-        return MAIN_SERVICES.map(svc => {
+        return MAIN_SERVICES.filter(svc => !hiddenServiceKeys.split(',').includes(svc.key)).map(svc => {
             if (!isIndustrialBranch) return svc;
             
             let detailFields: { key: string; label: string; listId?: string }[] = [];
@@ -622,7 +631,7 @@ export default function StandardReception({
             
             return { ...svc, detailFields };
         });
-    }, [isIndustrialBranch]);
+    }, [isIndustrialBranch, hiddenServiceKeys]);
     // ---------- Print Preview States ----------
     const [previewReportId, setPreviewReportId] = useState<string | null>(null);
     const [previewMode, setPreviewMode] = useState<'full' | 'short'>('full');
@@ -841,8 +850,9 @@ export default function StandardReception({
     }, []);
 
     useEffect(() => {
-        if (!phone || phone.length < 3) { setClientSuggestions([]); return; }
+        if (!phone || phone.length < 3) { setClientSuggestions([]); setClientVehicles([]); return; }
         if (selectedClientId) return;
+        let cancelled = false;
         const searchClient = async () => {
             setIsSearchingClient(true);
             // A scanner types the whole booklet URL — reduce it to the serial first.
@@ -864,11 +874,15 @@ export default function StandardReception({
                     .ilike('phone', `%${normalizePhone(phone)}%`)
                     .limit(5);
                 setClientSuggestions(data || []);
+                // The whole number typed by hand, without picking the name from the list:
+                // it is still this customer, so their saved cars are known.
+                const exact = (data || []).filter(c => normalizePhone(c.phone || "") === normalizePhone(phone));
+                if (!cancelled) setClientVehicles(exact.length === 1 ? exact[0].vehicles || [] : []);
             }
             setIsSearchingClient(false);
         };
         const timeout = setTimeout(searchClient, 500);
-        return () => clearTimeout(timeout);
+        return () => { cancelled = true; clearTimeout(timeout); };
     }, [phone, selectedClientId]);
 
     const selectSuggestion = (client: any) => {
@@ -876,13 +890,30 @@ export default function StandardReception({
         setName(client.name);
         setSelectedClientId(client.id);
         setClientSuggestions([]);
-        if (client.vehicles && client.vehicles.length > 0) {
-            const v = client.vehicles[0];
+        setClientVehicles(client.vehicles || []);
+        const v = defaultSavedCar(client.vehicles || []);
+        if (v) {
             setMake(v.make || ""); setModel(v.model || "");
             setEngineSize(v.engine_size || ""); setPlateNumber(v.plate_number || "");
             setBookletSerial(v.booklet_serial || "");
+            filledEngine.current = (v.engine_size || "").trim();
         }
     };
+
+    // Returning customer: the engine size comes from their saved car. It follows the car
+    // being typed (same plate, else same make and model), and only replaces an empty box or
+    // a value this form filled in itself, never one the receptionist typed.
+    useEffect(() => {
+        const car = matchSavedCar(clientVehicles, plateNumber, make, model);
+        if (!car) return;
+        const size = (car.engine_size || "").trim();
+        const current = engineSize.trim();
+        if (current === size || (current !== "" && current !== filledEngine.current)) return;
+        setEngineSize(size);
+        filledEngine.current = size;
+    // Deliberately not run when the box itself is edited, so it can be cleared and retyped.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [clientVehicles, plateNumber, make, model]);
 
     const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setPhone(e.target.value);
@@ -892,6 +923,8 @@ export default function StandardReception({
         if (selectedClientId) {
             setSelectedClientId(null);
             setName(""); setMake(""); setModel(""); setPlateNumber(""); setBookletSerial("");
+            // The previous customer's engine size must not carry over to the next one.
+            setEngineSize(""); setClientVehicles([]); filledEngine.current = "";
         }
     };
 
@@ -1653,7 +1686,7 @@ export default function StandardReception({
                             <h3 className="text-lg font-bold mb-4 pb-2 border-b border-border text-foreground">
                                 {isSectorBranch 
                                     ? "خدمات فرع القطاع — فحص دوري مع كل زيارة"
-                                    : `خدمات العميل (1-${MAIN_SERVICES.length}) — فحص دوري مع كل زيارة`
+                                    : `خدمات العميل (1-${activeServicesList.length}) — فحص دوري مع كل زيارة`
                                 }
                             </h3>
 
@@ -2020,7 +2053,7 @@ export default function StandardReception({
                         {hasCarWash && (
                             <div className={`rounded-xl border transition-colors ${carWash ? 'border-rose-500/40 bg-rose-950/10' : 'border-border bg-background/40'}`}>
                                 <div className="flex flex-wrap items-center gap-3 p-3">
-                                    <span className="text-xs font-mono text-muted-foreground w-5 text-center">{MAIN_SERVICES.length + 1}</span>
+                                    <span className="text-xs font-mono text-muted-foreground w-5 text-center">{activeServicesList.length + 1}</span>
                                     <span className="font-bold text-sm min-w-[140px]">غسل السيارة</span>
                                     <input
                                         type="text"
@@ -2060,7 +2093,7 @@ export default function StandardReception({
                                     <span className="text-xs font-mono text-muted-foreground w-5 text-center">
                                         {isSectorBranch
                                             ? SECTOR_BRANCH_SERVICES.reduce((acc, s) => acc + s.items.length, 0) + 1
-                                            : MAIN_SERVICES.length + (hasCarWash ? 2 : 1)
+                                            : activeServicesList.length + (hasCarWash ? 2 : 1)
                                         }
                                     </span>
                                     <span className="font-bold text-sm min-w-[140px]">أحداث الصيانة (خدمات إضافية)</span>

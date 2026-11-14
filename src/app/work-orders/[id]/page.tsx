@@ -17,6 +17,7 @@ import { emptyInspection } from "@/lib/comprehensiveInspection";
 import { showSuccess, showError } from "@/lib/alerts";
 import { syncOrderToGoogleSheets } from "@/lib/googleSheetsSync";
 import { digitsOnly, decimalsOnly, withCommas } from "@/lib/format";
+import { hiddenMainServices } from "@/lib/reception";
 
 // Line total for the floor's add-service form: unit price × qty, rounded like reception.
 // Inputs may hold "15,000" or Arabic-Indic digits, so normalise before parsing.
@@ -141,6 +142,7 @@ export default function WorkOrderDetailPage() {
     const { employeeRole, employeeBranchId, permissionWorkOrders, loading: authLoading } = useAuth();
 
     const [order, setOrder] = useState<WorkOrder | null>(null);
+    const hiddenServices = hiddenMainServices(order?.branches?.name);
     const [loading, setLoading] = useState(true);
     const [unauthorized, setUnauthorized] = useState(false);
     const [liveSeconds, setLiveSeconds] = useState(0);
@@ -1147,9 +1149,10 @@ export default function WorkOrderDetailPage() {
                                                 <option value="brakeFluid">🛑 زيت المكابح</option>
                                                 <option value="coolant">💧 ماء الراديتر</option>
                                                 <option value="battery">🔋 البطارية</option>
-                                                <option value="engineBelts">⛓️ قايش المحرك</option>
-                                                <option value="brakePads">💿 دسكات السيارة</option>
-                                                <option value="sparkPlugs">🔌 شمعات الاحتراق</option>
+                                                {/* Left out for a branch that does not offer them (see hiddenMainServices). */}
+                                                {!hiddenServices.includes("engineBelts") && <option value="engineBelts">⛓️ قايش المحرك</option>}
+                                                {!hiddenServices.includes("brakePads") && <option value="brakePads">💿 دسكات السيارة</option>}
+                                                {!hiddenServices.includes("sparkPlugs") && <option value="sparkPlugs">🔌 شمعات الاحتراق</option>}
                                                 {/* Reception's key for hydraulic is gearboxHydraulic (gearboxOil is زيت كير). */}
                                                 <option value="gearboxHydraulic">⚙️ هايدروليك الكير</option>
                                                 <option value="gearboxFilter">⚙️ فلتر الكير</option>
