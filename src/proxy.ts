@@ -14,7 +14,7 @@ const PUBLIC_PREFIXES = ["/login", "/b/", "/share/", "/api/"];
 const APP_SECTIONS = new Set([
     "accounting", "alerts", "analytics", "assistant", "audit", "contracts", "customers",
     "dashboard", "documents", "employees", "financial-reports", "hr", "inspection",
-    "inventory", "parts-db", "payroll", "print", "reception", "reports", "services",
+    "payroll", "print", "reception", "reports", "services",
     "settings", "status", "sticker", "suggestions", "technician-report", "warranty",
     "whatsapp", "work-orders",
 ]);

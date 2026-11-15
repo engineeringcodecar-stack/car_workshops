@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import type {
-    BranchRow, EmployeeRow, ClientRow, VehicleRow, InspectionReportRow, InventoryRow, ReportServiceRow
+    BranchRow, EmployeeRow, ClientRow, VehicleRow, InspectionReportRow, ReportServiceRow
 } from "@/lib/types";
 
 // ─── Generic fetch hook ────────────────────────────────────────
@@ -46,9 +46,6 @@ export function useVehicles() { return useTable<VehicleRow>("vehicles"); }
 
 // ─── Inspection Reports ─────────────────────────────────────
 export function useInspectionReports() { return useTable<InspectionReportRow>("inspection_reports"); }
-
-// ─── Inventory ──────────────────────────────────────────────
-export function useInventory() { return useTable<InventoryRow>("inventory"); }
 
 // ─── Report Services ────────────────────────────────────────
 export function useReportServices() { return useTable<ReportServiceRow>("report_services"); }
