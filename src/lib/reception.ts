@@ -12,6 +12,16 @@ export function hiddenMainServices(branchName?: string | null): string[] {
     return /المجر/.test(branchName || "") ? ["engineBelts", "brakePads", "sparkPlugs"] : [];
 }
 
+/**
+ * Branches whose work order takes one material name and a count per service (the الصناعية
+ * form), instead of separate boxes such as oil brand, viscosity and litres. The printed
+ * order follows the same split. المجر is matched by the word in its name, like above.
+ */
+export function usesMaterialForm(branchName?: string | null): boolean {
+    const name = branchName || "";
+    return ["الصناعية", "فرع الصناعية", "الكراج", "فرع الكراج"].includes(name) || /المجر/.test(name);
+}
+
 /** True when a service line carries anything worth showing (a status or a price). */
 export function serviceInUse(entry?: { status?: string; price?: string | number | null } | null): boolean {
     return !!entry && (!!entry.status || String(entry.price ?? "").trim() !== "");

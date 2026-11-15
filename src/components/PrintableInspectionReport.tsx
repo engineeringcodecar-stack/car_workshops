@@ -1,6 +1,6 @@
 import React, { forwardRef } from 'react';
 import BookletCodes from '@/components/BookletCodes';
-import { hiddenMainServices, serviceInUse } from '@/lib/reception';
+import { hiddenMainServices, serviceInUse, usesMaterialForm } from '@/lib/reception';
 
 interface PrintableInspectionReportProps {
     report: any;
@@ -220,7 +220,7 @@ export const PrintableInspectionReport = forwardRef<HTMLDivElement, PrintableIns
     };
 
     const isSectorBranch = report?.branches?.name === 'القطاع' || report?.branches?.name === 'فرع القطاع';
-    const isIndustrialBranch = ['الصناعية', 'فرع الصناعية', 'الكراج', 'فرع الكراج'].includes(report?.branches?.name || '');
+    const isIndustrialBranch = usesMaterialForm(report?.branches?.name);
 
     const flatSectorServices = [
         { key: 'engineFlash', label: 'فلاش محرك', fields: [{ key: 'type', label: 'النوع / الماركة' }, { key: 'qty', label: 'الكمية' }] },

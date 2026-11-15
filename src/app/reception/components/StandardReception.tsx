@@ -16,7 +16,7 @@ import { PrintableInspectionReport } from "@/components/PrintableInspectionRepor
 import { syncOrderToGoogleSheets } from "@/lib/googleSheetsSync";
 import { useContracts } from "@/lib/contracts";
 import ContractBanner from "@/components/ContractBanner";
-import { hiddenMainServices, serviceInUse, matchSavedCar, defaultSavedCar, type SavedCar } from "@/lib/reception";
+import { hiddenMainServices, serviceInUse, usesMaterialForm, matchSavedCar, defaultSavedCar, type SavedCar } from "@/lib/reception";
 
 type Step = 1 | 2 | 3;
 
@@ -592,7 +592,7 @@ export default function StandardReception({
     const [reportNumber, setReportNumber] = useState<number | null>(null);
 
     const isSectorBranch = branches.find(b => b.id === selectedBranchId)?.name === 'القطاع' || branches.find(b => b.id === selectedBranchId)?.name === 'فرع القطاع';
-    const isIndustrialBranch = ['الصناعية', 'فرع الصناعية', 'الكراج', 'فرع الكراج'].includes(branches.find(b => b.id === selectedBranchId)?.name || '');
+    const isIndustrialBranch = usesMaterialForm(branches.find(b => b.id === selectedBranchId)?.name);
     const isGarageBranch = ['الكراج', 'فرع الكراج'].includes(branches.find(b => b.id === selectedBranchId)?.name || '');
     // Matched by the word in the name, not the exact name: المجر is a new branch and no other
     // code depends on how it is spelled in the branches table.
