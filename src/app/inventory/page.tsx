@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { Download, FileUp, Loader2, Package, RefreshCw, Search, ShieldAlert, Upload } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/AuthProvider";
 import { showConfirm, showError, showSuccess } from "@/lib/alerts";
 import {
     deriveBaseQuantity, formatInventoryStock, INVENTORY_UNITS, normalizeInventoryHeader,
-    parseInventoryNumber, packagingOptions, stockUnitsPerPackage,
+    parseInventoryNumber, stockUnitsPerPackage,
 } from "@/lib/inventory";
 
 type Branch = { id: string; name: string };
@@ -20,8 +20,9 @@ type InventoryRow = {
     base_unit: string | null; unit1: string | null; unit2: string | null; unit3: string | null;
     unit1_to_unit2: number | null; unit2_to_unit3: number | null; price_unit1: number | null;
     price_unit2: number | null; price_unit3: number | null; supplier: string | null; store: string | null;
-    location: string | null; created_at: string | null; branches?: { name: string } | null;
+    location: string | null; notes: string | null; created_at: string | null; branches?: { name: string } | null;
 };
+type InventoryColumn = { key: string; label: string; price?: boolean; defaultVisible?: boolean; value: (item: InventoryRow, branches: Branch[]) => ReactNode; exportValue?: (item: InventoryRow, branches: Branch[]) => unknown };
 type ParsedRow = Record<string, unknown> & { __row: number; __key: string };
 type Preview = { mode: ImportMode; fileName: string; sheetName: string; rows: ParsedRow[]; warnings: string[] };
 
@@ -43,7 +44,6 @@ const NEW_ITEM_HEADERS = [
 ];
 const QUANTITY_HEADERS = ["المخزن", "العدد", "إسم المادة", "ت", "الفرع"];
 const PRICE_HEADERS = ["آخر شراء", "سعر التعئبة 3", "سعر التعئبة 2", "سعر الخاص", "سعر الجملة", "سعر الشراء", "سعر العام", "إسم المادة", "ت", "الفرع", "سعر التعبئة 1"];
-const EXPORT_HEADERS = [...INVENTORY_HEADERS, "سعر التعبئة 1"];
 const TEMPLATE_GUIDE = [
     ["تمبلت المخزن الموحد — هندسة السيارات"],
     ["كل سطر مادة واحدة في فرع واحد. المفتاح هو (الفرع، ت)."],
@@ -135,9 +135,46 @@ function asRecord(value: unknown): Record<string, unknown> {
     return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+const INVENTORY_COLUMNS: InventoryColumn[] = [
+    { key: "branch", label: "الفرع", defaultVisible: true, value: (item, branches) => item.branches?.name || branches.find(b => b.id === item.branch_id)?.name || "—" },
+    { key: "code", label: "ت / كود المادة", defaultVisible: true, value: item => item.murabba_id || item.item_code || "—" },
+    { key: "name", label: "إسم المادة", defaultVisible: true, value: item => <><b>{item.name}</b><div className="text-xs text-muted-foreground">{item.supplier || ""}</div></>, exportValue: item => item.name },
+    { key: "category", label: "المجموعة", defaultVisible: true, value: item => item.category || "—" },
+    { key: "stock", label: "موجود المخزن", defaultVisible: true, value: item => formatInventoryStock(item) },
+    { key: "quantity", label: "العدد", value: item => Number(item.quantity || 0).toLocaleString("en-US") },
+    { key: "count1", label: "عدد1", value: item => item.unit1 ? Number(item.quantity) / stockUnitsPerPackage(item, item.unit1) : "—" },
+    { key: "count2", label: "عدد2", value: item => item.unit2 ? Number(item.quantity) / stockUnitsPerPackage(item, item.unit2) : "—" },
+    { key: "count3", label: "عدد3", value: item => item.unit3 ? Number(item.quantity) / stockUnitsPerPackage(item, item.unit3) : "—" },
+    { key: "unit", label: "التعبئة", defaultVisible: true, value: item => item.base_unit || item.unit1 || "قطعة" },
+    { key: "unit1", label: "تعبئة 1", value: item => item.unit1 || "—" },
+    { key: "unit2", label: "تعبئة 2", value: item => item.unit2 || "—" },
+    { key: "unit3", label: "تعبئة 3", value: item => item.unit3 || "—" },
+    { key: "units_per1", label: "عدد تعبئة 1", value: item => item.unit1_to_unit2 ?? "—" },
+    { key: "units_per2", label: "عدد تعبئة 2", value: item => item.unit2_to_unit3 ?? "—" },
+    { key: "sell_price", label: "سعر العام", price: true, defaultVisible: true, value: item => formatMoney(item.sell_price) },
+    { key: "purchase_price", label: "سعر الشراء", price: true, value: item => formatMoney(item.purchase_price) },
+    { key: "special_price", label: "سعر الخاص", price: true, value: item => formatMoney(item.special_price) },
+    { key: "wholesale", label: "سعر الجملة", price: true, value: item => formatMoney(item.price_wholesale) },
+    { key: "price_unit1", label: "سعر التعبئة 1", price: true, value: item => formatMoney(item.price_unit1) },
+    { key: "price_unit2", label: "سعر التعبئة 2", price: true, value: item => formatMoney(item.price_unit2) },
+    { key: "price_unit3", label: "سعر التعبئة 3", price: true, value: item => formatMoney(item.price_unit3) },
+    { key: "last_purchase", label: "آخر شراء", price: true, value: item => formatMoney(item.last_purchase_price) },
+    { key: "minimum", label: "الحد الأدنى", defaultVisible: true, value: item => Number(item.min_quantity ?? 5).toLocaleString("en-US") },
+    { key: "supplier", label: "الشركة", value: item => item.supplier || "—" },
+    { key: "store", label: "المخزن", defaultVisible: true, value: item => item.store || "—" },
+    { key: "location", label: "الموقع", value: item => item.location || "—" },
+    { key: "notes", label: "ملاحظات", value: item => item.notes || "—" },
+    { key: "added", label: "تاريخ الإضافة", value: item => item.created_at ? new Date(item.created_at).toLocaleDateString("en-GB") : "—" },
+];
+const priceColumnKeys = INVENTORY_COLUMNS.filter(column => column.price).map(column => column.key);
+const defaultVisibleColumnKeys = (canSeePrices: boolean) => INVENTORY_COLUMNS
+    .filter(column => column.defaultVisible && (canSeePrices || !column.price)).map(column => column.key);
+
 export default function InventoryPage() {
-    const { employeeRole, employeeBranchId, loading: authLoading } = useAuth();
+    const { employeeRole, employeeBranchId, employeeId, permissionInventoryPrices, allowedPages, loading: authLoading } = useAuth();
     const isAdmin = employeeRole === "Owner" || employeeRole === "Admin";
+    const canSeePrices = isAdmin || !!permissionInventoryPrices;
+    const isAuthorized = isAdmin || !!allowedPages?.includes("inventory");
     const [branches, setBranches] = useState<Branch[]>([]);
     const [items, setItems] = useState<InventoryRow[]>([]);
     const [selectedBranch, setSelectedBranch] = useState("");
@@ -152,6 +189,27 @@ export default function InventoryPage() {
     const [importBranch, setImportBranch] = useState("");
     const [preview, setPreview] = useState<Preview | null>(null);
     const [importing, setImporting] = useState(false);
+    const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
+    const [columnsReady, setColumnsReady] = useState(false);
+    const [columnsMenuOpen, setColumnsMenuOpen] = useState(false);
+
+    useEffect(() => {
+        if (!employeeId) return;
+        const key = `inventoryColumns:${employeeId}`;
+        try {
+            const saved = localStorage.getItem(key);
+            const parsed = saved ? JSON.parse(saved) : null;
+            setVisibleColumns(Array.isArray(parsed) ? parsed.filter((column: unknown) => typeof column === "string") : defaultVisibleColumnKeys(canSeePrices));
+        } catch {
+            setVisibleColumns(defaultVisibleColumnKeys(canSeePrices));
+        }
+        setColumnsReady(true);
+    }, [employeeId, canSeePrices]);
+
+    useEffect(() => {
+        if (!columnsReady || !employeeId) return;
+        try { localStorage.setItem(`inventoryColumns:${employeeId}`, JSON.stringify(visibleColumns)); } catch {}
+    }, [columnsReady, employeeId, visibleColumns]);
 
     const fetchBranches = useCallback(async () => {
         const { data, error } = await supabase.from("branches").select("id,name").order("name");
@@ -167,10 +225,12 @@ export default function InventoryPage() {
             const all: InventoryRow[] = [];
             const pageSize = 1000;
             for (let from = 0; from < 10000; from += pageSize) {
+                const fields = canSeePrices ? "*,branches(name)" : "id,branch_id,item_code,murabba_id,name,category,quantity,min_quantity,base_unit,unit1,unit2,unit3,unit1_to_unit2,unit2_to_unit3,supplier,store,location,notes,created_at,branches(name)";
                 let query = supabase.from("inventory")
-                    .select("*,branches(name)")
+                    .select(fields)
                     .order("name").range(from, from + pageSize - 1);
-                if (selectedBranch) query = query.eq("branch_id", selectedBranch);
+                const branchFilter = isAdmin ? selectedBranch : employeeBranchId;
+                if (branchFilter) query = query.eq("branch_id", branchFilter);
                 const { data, error } = await query;
                 if (error) throw error;
                 all.push(...((data || []) as unknown as InventoryRow[]));
@@ -182,16 +242,16 @@ export default function InventoryPage() {
         } finally {
             setLoading(false);
         }
-    }, [selectedBranch]);
+    }, [selectedBranch, canSeePrices, isAdmin, employeeBranchId]);
 
     useEffect(() => {
-        if (!isAdmin) return;
+        if (!isAuthorized) return;
         fetchBranches().catch(error => showError("تعذر تحميل الفروع", errorMessage(error)));
-    }, [isAdmin, fetchBranches]);
+    }, [isAuthorized, fetchBranches]);
 
     useEffect(() => {
-        if (isAdmin) fetchInventory();
-    }, [isAdmin, fetchInventory]);
+        if (isAuthorized) fetchInventory();
+    }, [isAuthorized, fetchInventory]);
 
     const filteredItems = useMemo(() => items.filter(item => {
         const q = search.trim().toLowerCase();
@@ -200,6 +260,10 @@ export default function InventoryPage() {
         const low = item.quantity <= (item.min_quantity ?? 5);
         return matches && (!onlyLow || low);
     }), [items, search, onlyLow]);
+
+    const activeColumns = useMemo(() => INVENTORY_COLUMNS.filter(column =>
+        visibleColumns.includes(column.key) && (canSeePrices || !column.price)
+    ), [visibleColumns, canSeePrices]);
 
     const chooseFile = async (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -322,7 +386,7 @@ export default function InventoryPage() {
                     store: readText(row, headerMap, ["المخزن", "store"]) || null,
                     location: readText(row, headerMap, ["الموقع", "location"]) || null,
                     created_at: readDate(row, headerMap, ["تاريخ الاضافة", "created_at"]),
-                    notes: readText(row, headerMap, ["notes"]) || null,
+                    notes: readText(row, headerMap, ["ملاحظة", "ملاحظات", "ملاحظة للمبرمج", "notes"]) || null,
                 });
             }
             parsed.push(output);
@@ -367,34 +431,12 @@ export default function InventoryPage() {
     };
 
     const exportInventory = () => {
-        const rows = filteredItems.map(item => ({
-            "الفرع": item.branches?.name || branches.find(b => b.id === item.branch_id)?.name || "",
-            "ت": item.murabba_id || item.item_code,
-            "إسم المادة": item.name,
-            "العدد": item.quantity,
-            "سعر العام": item.sell_price,
-            "سعر الشراء": item.purchase_price,
-            "عدد1": item.unit1 ? Number(item.quantity) / stockUnitsPerPackage(item, item.unit1) : "",
-            "عدد2": item.unit2 ? Number(item.quantity) / stockUnitsPerPackage(item, item.unit2) : "",
-            "عدد3": item.unit3 ? Number(item.quantity) / stockUnitsPerPackage(item, item.unit3) : "",
-            "سعر الجملة": item.price_wholesale,
-            "المخزن": item.store,
-            "المجموعة": item.category,
-            "موجود المخزن": formatInventoryStock(item),
-            "التعبئة": item.base_unit,
-            "تعبئة1": item.unit1,
-            "تعبئة2": item.unit2,
-            "تعبئة3": item.unit3,
-            "الشركة": item.supplier,
-            "الحد الأدنى": item.min_quantity,
-            "عدد تعبئة 1": item.unit1_to_unit2,
-            "عدد تعبئة 2": item.unit2_to_unit3,
-            "سعر التعبئة 2": item.price_unit2,
-            "سعر التعبئة 3": item.price_unit3,
-            "سعر التعبئة 1": item.price_unit1,
-            "آخر شراء": item.last_purchase_price,
-        }));
-        const ws = XLSX.utils.json_to_sheet(rows, { header: EXPORT_HEADERS });
+        const headers = activeColumns.map(column => column.label);
+        const rows = filteredItems.map(item => Object.fromEntries(activeColumns.map(column => [
+            column.label,
+            column.exportValue ? column.exportValue(item, branches) : column.value(item, branches),
+        ])));
+        const ws = XLSX.utils.json_to_sheet(rows, { header: headers });
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "المخزن");
         XLSX.writeFile(wb, "تصدير_المخزن_الموحد.xlsx");
@@ -404,7 +446,7 @@ export default function InventoryPage() {
         return <div className="min-h-screen flex items-center justify-center" dir="rtl"><Loader2 className="animate-spin text-rose-500" size={36} /></div>;
     }
 
-    if (!isAdmin) {
+    if (!isAuthorized) {
         return <div className="min-h-screen flex items-center justify-center p-6" dir="rtl"><div className="glass-card rounded-2xl p-8 text-center"><ShieldAlert className="mx-auto mb-3 text-rose-500" size={36} /><h1 className="text-xl font-bold">هذه الشاشة مخصصة للمالك والمدير</h1></div></div>;
     }
 
@@ -417,7 +459,7 @@ export default function InventoryPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                     <button onClick={() => setActiveTab("list")} className={`px-4 py-2 rounded-xl border font-bold ${activeTab === "list" ? "bg-rose-600 text-white border-rose-500" : "bg-card border-border"}`}>المواد</button>
-                    <button onClick={() => setActiveTab("import")} className={`px-4 py-2 rounded-xl border font-bold ${activeTab === "import" ? "bg-rose-600 text-white border-rose-500" : "bg-card border-border"}`}><FileUp size={16} className="inline ml-2" />استيراد وتحديث</button>
+                    {isAdmin && <button onClick={() => setActiveTab("import")} className={`px-4 py-2 rounded-xl border font-bold ${activeTab === "import" ? "bg-rose-600 text-white border-rose-500" : "bg-card border-border"}`}><FileUp size={16} className="inline ml-2" />استيراد وتحديث</button>}
                 </div>
             </div>
 
@@ -425,35 +467,36 @@ export default function InventoryPage() {
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                     <div className="glass-card rounded-2xl p-4"><div className="text-xs text-muted-foreground">المواد المعروضة</div><div className="text-2xl font-bold mt-1">{filteredItems.length.toLocaleString("en-US")}</div></div>
                     <div className="glass-card rounded-2xl p-4"><div className="text-xs text-muted-foreground">منخفضة عن الحد الأدنى</div><div className="text-2xl font-bold mt-1 text-amber-400">{items.filter(i => i.quantity <= (i.min_quantity ?? 5)).length.toLocaleString("en-US")}</div></div>
-                    <div className="glass-card rounded-2xl p-4"><div className="text-xs text-muted-foreground">قيمة الرصيد بسعر الشراء</div><div className="text-xl font-bold mt-1">{items.reduce((sum, i) => sum + Number(i.quantity || 0) * Number(i.purchase_price || 0), 0).toLocaleString("en-US")} د.ع</div></div>
+                    {canSeePrices && <div className="glass-card rounded-2xl p-4"><div className="text-xs text-muted-foreground">قيمة الرصيد بسعر الشراء</div><div className="text-xl font-bold mt-1">{items.reduce((sum, i) => sum + Number(i.quantity || 0) * Number(i.purchase_price || 0), 0).toLocaleString("en-US")} د.ع</div></div>}
                     <div className="glass-card rounded-2xl p-4"><div className="text-xs text-muted-foreground">الفروع المحملة</div><div className="text-2xl font-bold mt-1">{selectedBranch ? 1 : branches.length}</div></div>
                 </div>
                 <div className="glass-card rounded-2xl p-4 flex flex-col md:flex-row gap-3">
                     <div className="relative flex-1"><Search size={17} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><input value={search} onChange={e => setSearch(e.target.value)} className="input-field w-full pr-10" placeholder="بحث بالاسم أو رقم المادة أو الشركة..." /></div>
-                    <select value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)} className="input-field md:w-56"><option value="">كل الفروع</option>{branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select>
+                    {isAdmin && <select value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)} className="input-field md:w-56"><option value="">كل الفروع</option>{branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select>}
                     <button onClick={() => setOnlyLow(v => !v)} className={`px-4 py-2 rounded-xl border font-bold ${onlyLow ? "border-amber-500/40 bg-amber-500/10 text-amber-300" : "border-border"}`}>منخفض المخزون</button>
                     <button onClick={fetchInventory} className="p-2.5 rounded-xl border border-border" title="تحديث القائمة"><RefreshCw size={18} /></button>
+                    <div className="relative">
+                        <button onClick={() => setColumnsMenuOpen(value => !value)} className="px-4 py-2 rounded-xl border border-border font-bold">اختيار الأعمدة</button>
+                        {columnsMenuOpen && <div className="absolute z-30 left-0 top-full mt-2 w-72 max-h-96 overflow-auto rounded-xl border border-border bg-card p-3 shadow-2xl">
+                            <div className="flex justify-between items-center mb-2"><span className="font-bold text-sm">الأعمدة الظاهرة</span><button onClick={() => setVisibleColumns(defaultVisibleColumnKeys(canSeePrices))} className="text-xs text-rose-400">إعادة الافتراضي</button></div>
+                            {INVENTORY_COLUMNS.filter(column => canSeePrices || !column.price).map(column => <label key={column.key} className="flex items-center gap-2 py-1.5 text-sm">
+                                <input type="checkbox" checked={visibleColumns.includes(column.key)} onChange={event => setVisibleColumns(current => event.target.checked ? [...new Set([...current, column.key])] : current.filter(key => key !== column.key))} />
+                                <span>{column.label}</span>{column.price && <span className="text-[10px] text-amber-400">سعر</span>}
+                            </label>)}
+                        </div>}
+                    </div>
                     <button onClick={exportInventory} className="px-4 py-2 rounded-xl border border-emerald-500/30 text-emerald-400 font-bold"><Download size={16} className="inline ml-2" />تصدير</button>
                 </div>
                 <div className="glass-card rounded-2xl border border-border overflow-auto">
-                    <table className="w-full min-w-[1100px] text-sm text-right">
-                        <thead className="bg-muted/50 text-muted-foreground"><tr>{["الفرع", "ت / كود المادة", "إسم المادة", "المجموعة", "موجود المخزن", "التعبئة", "أسعار التعبئة", "الحد الأدنى", "المخزن"].map(h => <th key={h} className="p-3 whitespace-nowrap">{h}</th>)}</tr></thead>
+                    <table className="w-full min-w-[900px] text-sm text-right">
+                        <thead className="bg-muted/50 text-muted-foreground"><tr>{activeColumns.map(column => <th key={column.key} className="p-3 whitespace-nowrap">{column.label}</th>)}</tr></thead>
                         <tbody>
-                            {loading ? <tr><td colSpan={9} className="p-12 text-center"><Loader2 className="animate-spin inline ml-2" />جارٍ تحميل المخزن...</td></tr>
-                                : filteredItems.length === 0 ? <tr><td colSpan={9} className="p-12 text-center text-muted-foreground">لا توجد مواد مطابقة.</td></tr>
+                            {loading ? <tr><td colSpan={activeColumns.length} className="p-12 text-center"><Loader2 className="animate-spin inline ml-2" />جارٍ تحميل المخزن...</td></tr>
+                                : filteredItems.length === 0 ? <tr><td colSpan={activeColumns.length} className="p-12 text-center text-muted-foreground">لا توجد مواد مطابقة.</td></tr>
                                     : filteredItems.map(item => {
                                         const low = item.quantity <= (item.min_quantity ?? 5);
-                                        const prices = packagingOptions(item).filter(x => x.price !== null).map(x => `${x.unit}: ${formatMoney(x.price)}`).join(" • ");
                                         return <tr key={item.id} className="border-t border-border/70 hover:bg-muted/30">
-                                            <td className="p-3 whitespace-nowrap">{item.branches?.name || branches.find(b => b.id === item.branch_id)?.name || "—"}</td>
-                                            <td className="p-3 font-mono">{item.murabba_id || item.item_code}</td>
-                                            <td className="p-3 font-bold">{item.name}<div className="text-xs text-muted-foreground font-normal">{item.supplier || ""}</div></td>
-                                            <td className="p-3">{item.category || "—"}</td>
-                                            <td className={`p-3 font-bold ${low ? "text-amber-400" : "text-emerald-400"}`}>{formatInventoryStock(item)}</td>
-                                            <td className="p-3">{item.base_unit || item.unit1 || "قطعة"}</td>
-                                            <td className="p-3 min-w-[260px] text-xs">{prices || formatMoney(item.sell_price)}</td>
-                                            <td className="p-3">{Number(item.min_quantity ?? 5).toLocaleString("en-US")}</td>
-                                            <td className="p-3">{item.store || "—"}</td>
+                                            {activeColumns.map(column => <td key={column.key} className={`p-3 ${column.key === "code" ? "font-mono" : ""} ${column.key === "name" ? "font-bold" : ""} ${column.key === "stock" ? `font-bold ${low ? "text-amber-400" : "text-emerald-400"}` : ""}`}>{column.value(item, branches)}</td>)}
                                         </tr>;
                                     })}
                         </tbody>

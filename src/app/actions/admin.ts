@@ -45,6 +45,7 @@ export async function createEmployeeAccount(formData: {
     permission_customers?: boolean;
     permission_reports?: boolean;
     permission_employees?: boolean;
+    permission_inventory_prices?: boolean;
     allowed_pages?: string[];
 }) {
     // SECURITY: server actions are public POST endpoints — verify the caller may
@@ -101,6 +102,7 @@ export async function createEmployeeAccount(formData: {
                 permission_customers: formData.permission_customers ?? true,
                 permission_reports: formData.permission_reports ?? true,
                 permission_employees: formData.permission_employees ?? false,
+                permission_inventory_prices: isAdmin && (formData.permission_inventory_prices ?? false),
                 allowed_pages: formData.allowed_pages ? sanitizePageKeys(formData.allowed_pages) : null
             });
 
@@ -135,6 +137,7 @@ export async function updateEmployeeAccount(
         permission_customers?: boolean;
         permission_reports?: boolean;
         permission_employees?: boolean;
+        permission_inventory_prices?: boolean;
         allowed_pages?: string[];
     }
 ) {
@@ -212,6 +215,7 @@ export async function updateEmployeeAccount(
                 permission_customers: formData.permission_customers ?? true,
                 permission_reports: formData.permission_reports ?? true,
                 permission_employees: formData.permission_employees ?? false,
+                ...(isAdmin ? { permission_inventory_prices: formData.permission_inventory_prices ?? false } : {}),
                 allowed_pages: formData.allowed_pages ? sanitizePageKeys(formData.allowed_pages) : null
             })
             .eq('auth_id', authId);

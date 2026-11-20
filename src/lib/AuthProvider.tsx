@@ -20,6 +20,7 @@ interface AuthContextType {
     permissionCustomers: boolean | null;
     permissionReports: boolean | null;
     permissionEmployees: boolean | null;
+    permissionInventoryPrices: boolean | null;
     /** Per-tab permissions (sidebar keys). null = not configured → legacy flags apply. */
     allowedPages: string[] | null;
     loading: boolean;
@@ -63,6 +64,7 @@ const AuthContext = createContext<AuthContextType>({
     permissionCustomers: null,
     permissionReports: null,
     permissionEmployees: null,
+    permissionInventoryPrices: null,
     allowedPages: null,
     loading: true,
     signOut: async () => {},
@@ -82,6 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [permissionCustomers, setPermissionCustomers] = useState<boolean | null>(null);
     const [permissionReports, setPermissionReports] = useState<boolean | null>(null);
     const [permissionEmployees, setPermissionEmployees] = useState<boolean | null>(null);
+    const [permissionInventoryPrices, setPermissionInventoryPrices] = useState<boolean | null>(null);
     const [allowedPages, setAllowedPages] = useState<string[] | null>(null);
     const [loading, setLoading] = useState(true);
     const [timedOut, setTimedOut] = useState(false);
@@ -174,6 +177,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setPermissionCustomers(data[0].permission_customers);
             setPermissionReports(data[0].permission_reports);
             setPermissionEmployees(data[0].permission_employees);
+            // Keep sign-in functional before the inventory permission migration is applied.
+            // A missing column safely means that no price access has been granted.
+            try {
+                const { data: pricePermission } = await (supabase as any).from("employees").select("permission_inventory_prices").eq("id", data[0].id).maybeSingle();
+                setPermissionInventoryPrices(!!pricePermission?.permission_inventory_prices);
+            } catch {
+                setPermissionInventoryPrices(false);
+            }
             const rawPages = (data[0] as any).allowed_pages;
             setAllowedPages(Array.isArray(rawPages) ? rawPages.filter((k: any) => typeof k === "string") : null);
 
@@ -298,6 +309,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     setPermissionCustomers(null);
                     setPermissionReports(null);
                     setPermissionEmployees(null);
+                    setPermissionInventoryPrices(null);
                     setAllowedPages(null);
                     branchKeyRef.current = null;
                     setLoading(false);
@@ -453,7 +465,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return (
         <AuthContext.Provider value={{
-            user, session, employeeRole, employeeName, employeeBranchId, employeeId,
+            user, session, employeeRole, employeeName, employeeBranchId, employeeId, permissionInventoryPrices,
             permissionDashboard, permissionReception, permissionWorkOrders,
             permissionCustomers, permissionReports, permissionEmployees,
             allowedPages,

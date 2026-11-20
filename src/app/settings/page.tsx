@@ -48,6 +48,7 @@ export default function SettingsPage() {
         permission_customers: true,
         permission_reports: true,
         permission_employees: false,
+        permission_inventory_prices: false,
         allowed_pages: [...DEFAULT_NEW_EMPLOYEE_PAGES]
     });
 
@@ -187,6 +188,7 @@ export default function SettingsPage() {
                 permission_customers: true,
                 permission_reports: true,
                 permission_employees: false,
+                permission_inventory_prices: false,
                 allowed_pages: [...DEFAULT_NEW_EMPLOYEE_PAGES]
             });
             await fetchAllData();
@@ -224,6 +226,7 @@ export default function SettingsPage() {
             permission_customers: emp.permission_customers ?? true,
             permission_reports: emp.permission_reports ?? true,
             permission_employees: emp.permission_employees ?? false,
+            permission_inventory_prices: emp.permission_inventory_prices ?? false,
             // Accounts saved before per-tab permissions get their old effective set prefilled.
             allowed_pages: Array.isArray(emp.allowed_pages)
                 ? emp.allowed_pages
@@ -256,6 +259,7 @@ export default function SettingsPage() {
                 permission_customers: true,
                 permission_reports: true,
                 permission_employees: false,
+                permission_inventory_prices: false,
                 allowed_pages: [...DEFAULT_NEW_EMPLOYEE_PAGES]
             });
             setEditingEmployeeId(null);
@@ -523,6 +527,7 @@ export default function SettingsPage() {
                                                 {canManage(emp) && (
                                                     <button onClick={() => handleEditUserClick(emp)} className="text-blue-500 hover:bg-blue-500/10 p-1.5 rounded transition-colors text-xs font-bold border border-blue-500/20">تعديل</button>
                                                 )}
+                                                <a href={`/employees/${emp.id}`} className="text-cyan-400 hover:bg-cyan-500/10 p-1.5 rounded transition-colors text-xs font-bold border border-cyan-500/20">الملف</a>
                                                 {canManage(emp) && (
                                                     <button onClick={() => handleDeleteUser(emp.auth_id, emp.name, emp.role)} className="text-rose-500 hover:bg-rose-500/10 p-1.5 rounded transition-colors text-xs font-bold border border-rose-500/20">حذف</button>
                                                 )}
@@ -664,6 +669,10 @@ export default function SettingsPage() {
                                         </label>
                                     ))}
                                 </div>
+                                {isAdmin && <label className="flex items-center gap-2 cursor-pointer bg-amber-500/5 p-3 rounded-xl border border-amber-500/20 text-xs">
+                                    <input type="checkbox" checked={formData.permission_inventory_prices} onChange={e => setFormData({ ...formData, permission_inventory_prices: e.target.checked })} className="accent-amber-500 w-4 h-4 rounded cursor-pointer" />
+                                    <span className="text-foreground font-medium">إظهار الأسعار لهذا الموظف (الشراء والبيع والجملة والتعبئات وتقارير الأسعار)</span>
+                                </label>}
                             </div>
                         </div>
 
@@ -701,6 +710,7 @@ export default function SettingsPage() {
                                     permission_customers: true,
                                     permission_reports: true,
                                     permission_employees: false,
+                                    permission_inventory_prices: false,
                                     allowed_pages: [...DEFAULT_NEW_EMPLOYEE_PAGES]
                                 });
                             }} className="text-muted-foreground hover:text-foreground bg-muted p-1.5 rounded-lg border border-border">
@@ -779,6 +789,10 @@ export default function SettingsPage() {
                                         </label>
                                     ))}
                                 </div>
+                                {isAdmin && <label className="flex items-center gap-2 cursor-pointer bg-amber-500/5 p-3 rounded-xl border border-amber-500/20 text-xs">
+                                    <input type="checkbox" checked={formData.permission_inventory_prices} onChange={e => setFormData({ ...formData, permission_inventory_prices: e.target.checked })} className="accent-amber-500 w-4 h-4 rounded cursor-pointer" />
+                                    <span className="text-foreground font-medium">إظهار الأسعار لهذا الموظف (الشراء والبيع والجملة والتعبئات وتقارير الأسعار)</span>
+                                </label>}
                             </div>
                         </div>
 
@@ -799,6 +813,7 @@ export default function SettingsPage() {
                                     permission_customers: true,
                                     permission_reports: true,
                                     permission_employees: false,
+                                    permission_inventory_prices: false,
                                     allowed_pages: [...DEFAULT_NEW_EMPLOYEE_PAGES]
                                 });
                             }} className="px-5 py-2.5 rounded-xl text-muted-foreground hover:bg-muted border border-transparent hover:border-border transition-colors font-medium">إلغاء الأمر</button>
