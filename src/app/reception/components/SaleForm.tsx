@@ -7,10 +7,32 @@ import { useAuth } from "@/lib/AuthProvider";
 import { showSuccess, showError } from "@/lib/alerts";
 import { digitsOnly, decimalsOnly, withCommasDecimal } from "@/lib/format";
 import { useContracts } from "@/lib/contracts";
+import type { Json } from "@/lib/types";
+import { priceForPackage } from "@/lib/inventory";
 import ContractBanner from "@/components/ContractBanner";
 import { ShoppingCart, ArrowRight, Plus, Trash2, Printer, Loader2, CheckCircle2 } from "lucide-react";
 
-type Product = { name: string; qty: string; price: string };
+type Product = { name: string; qty: string; price: string; inventory_id?: string; packageUnit?: string };
+type InventoryProduct = {
+    id: string; item_code: string; name: string; quantity: number; branch_id: string | null;
+    sell_price: number; base_unit?: string | null; unit1?: string | null; unit2?: string | null; unit3?: string | null;
+    unit1_to_unit2?: number | null; unit2_to_unit3?: number | null;
+    price_unit1?: number | null; price_unit2?: number | null; price_unit3?: number | null;
+};
+
+const baseUnitFor = (item: InventoryProduct) => item.base_unit?.trim() || item.unit1?.trim() || "قطعة";
+const priceForUnit = (item: InventoryProduct, unit: string): number | null => priceForPackage(item, unit);
+const packagingOptionsFor = (item: InventoryProduct) =>
+    [...new Set([baseUnitFor(item), item.unit1, item.unit2, item.unit3].filter((unit): unit is string => !!unit?.trim()))]
+        .map(unit => ({ unit, price: priceForUnit(item, unit) }));
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function stringField(value: unknown, fallback = ""): string {
+    return typeof value === "string" || typeof value === "number" ? String(value) : fallback;
+}
 
 export default function SaleForm({
     branches,
@@ -29,6 +51,7 @@ export default function SaleForm({
     const editId = searchParams.get("edit");
 
     const [editReportId, setEditReportId] = useState<string | null>(null);
+    const [hasLegacyManualSale, setHasLegacyManualSale] = useState(false);
     // The moment the sale was originally settled. Editing a sale must NOT re-stamp it —
     // rewriting accountedAt with "now" silently moved the sale's income to a different
     // day in the daily closing report.
@@ -42,22 +65,33 @@ export default function SaleForm({
     const [contractId, setContractId] = useState(contractFromUrl);
     const contracts = useContracts();
     const [products, setProducts] = useState<Product[]>([{ name: "", qty: "1", price: "" }]);
+    const [inventoryProducts, setInventoryProducts] = useState<InventoryProduct[]>([]);
     const [discount, setDiscount] = useState("");
-    const [productNames, setProductNames] = useState<string[]>([]);
     const [loading, setLoading] = useState(false);
     const [done, setDone] = useState<{ id: string; number: number | null } | null>(null);
 
     const branchName = branches.find((b) => b.id === (selectedBranchId || employeeBranchId))?.name || "";
 
-    // Product-name suggestions (same source as the reception form's "materials" list).
     useEffect(() => {
         const activeBranchId = selectedBranchId || employeeBranchId;
-        if (!activeBranchId) return;
+        if (!activeBranchId) { setInventoryProducts([]); return; }
+        let cancelled = false;
         (async () => {
-            const { data } = await (supabase as any).from("suggestion_lists").select("key, items").eq("branch_id", activeBranchId).eq("key", "materials");
-            const items = (data && data[0] && Array.isArray(data[0].items)) ? data[0].items : [];
-            setProductNames(items.map((it: any) => (typeof it === "object" && it !== null ? it.name : it)).filter(Boolean));
+            const { data, error } = await supabase.from("inventory")
+                .select("id,item_code,name,quantity,branch_id,sell_price,base_unit,unit1,unit2,unit3,unit1_to_unit2,unit2_to_unit3,price_unit1,price_unit2,price_unit3")
+                .eq("branch_id", activeBranchId)
+                .gt("quantity", 0)
+                .order("name");
+            if (!cancelled) {
+                if (error) {
+                    console.error("Failed to load warehouse products:", error);
+                    setInventoryProducts([]);
+                } else {
+                    setInventoryProducts((data || []) as InventoryProduct[]);
+                }
+            }
         })();
+        return () => { cancelled = true; };
     }, [selectedBranchId, employeeBranchId]);
 
     // Load an existing sale when editing.
@@ -69,16 +103,30 @@ export default function SaleForm({
             setEditReportId(data.id);
             if (data.branch_id) setSelectedBranchId(data.branch_id);
             setContractId(data.contract_id || "");
-            const payload = Array.isArray(data.selected_services) ? data.selected_services[0] : data.selected_services;
+            const selected = data.selected_services;
+            const payload = asRecord(Array.isArray(selected) ? selected[0] : selected);
             if (payload) {
-                setCustomerName(payload.customerName || "");
-                setCustomerPhone(payload.customerPhone || "");
-                if (Array.isArray(payload.products) && payload.products.length > 0) {
-                    setProducts(payload.products.map((p: any) => ({ name: p.name || "", qty: String(p.qty ?? "1"), price: String(p.price ?? "") })));
+                setCustomerName(stringField(payload.customerName));
+                setCustomerPhone(stringField(payload.customerPhone));
+                const savedProducts = payload.products;
+                if (Array.isArray(savedProducts) && savedProducts.length > 0) {
+                    const normalizedProducts = savedProducts.map(value => {
+                        const product = asRecord(value) || {};
+                        return {
+                            name: stringField(product.name),
+                            qty: stringField(product.qty, "1"),
+                            price: stringField(product.price),
+                            inventory_id: stringField(product.inventory_id) || undefined,
+                            packageUnit: stringField(product.packageUnit) || undefined,
+                        };
+                    });
+                    setProducts(normalizedProducts);
+                    setHasLegacyManualSale(normalizedProducts.every(product => !product.inventory_id));
                 }
-                const savedDiscount = parseFloat(String(payload.pricing?.discount ?? "0")) || 0;
+                const pricing = asRecord(payload.pricing) || {};
+                const savedDiscount = parseFloat(stringField(pricing.discount, "0")) || 0;
                 setDiscount(savedDiscount > 0 ? String(savedDiscount) : "");
-                setOriginalAccountedAt(payload.pricing?.accountedAt || null);
+                setOriginalAccountedAt(stringField(pricing.accountedAt) || null);
             }
         })();
     }, [editId, setSelectedBranchId]);
@@ -98,6 +146,24 @@ export default function SaleForm({
     const addProduct = () => setProducts((prev) => [...prev, { name: "", qty: "1", price: "" }]);
     const removeProduct = (i: number) => setProducts((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : prev));
 
+    const selectInventoryProduct = (index: number, inventoryId: string) => {
+        const item = inventoryProducts.find(product => product.id === inventoryId);
+        setProducts(prev => prev.map((product, i) => {
+            if (i !== index) return product;
+            if (!item) return { ...product, inventory_id: undefined, packageUnit: undefined };
+            const unit = baseUnitFor(item);
+            return { ...product, name: item.name, inventory_id: item.id, packageUnit: unit, price: String(priceForUnit(item, unit) ?? "") };
+        }));
+    };
+
+    const selectPackageUnit = (index: number, inventoryId: string, unit: string) => {
+        const item = inventoryProducts.find(product => product.id === inventoryId);
+        if (!item) return;
+        setProducts(prev => prev.map((product, i) => i === index
+            ? { ...product, packageUnit: unit, price: String(priceForUnit(item, unit) ?? "") }
+            : product));
+    };
+
     const handleSave = async () => {
         const valid = products.filter((p) => p.name.trim());
         if (valid.length === 0) {
@@ -109,13 +175,18 @@ export default function SaleForm({
             showError("تنبيه", "اختر الفرع أولاً.");
             return;
         }
+        const hasUnlinkedProducts = valid.some(p => !p.inventory_id);
+        if (hasUnlinkedProducts && !(editReportId && hasLegacyManualSale)) {
+            showError("اربط المواد بالمخزن", "اختر المادة من المخزن لكل سطر حتى يُخصم رصيدها حسب التعبئة المختارة.");
+            return;
+        }
         setLoading(true);
         try {
             const payload = [{
                 is_sale: true,
                 customerName: customerName.trim(),
                 customerPhone: customerPhone.trim(),
-                products: valid.map((p) => ({ name: p.name.trim(), qty: parseFloat(p.qty) || 1, price: parseFloat(p.price) || 0 })),
+                products: valid.map((p) => ({ name: p.name.trim(), qty: parseFloat(p.qty) || 1, price: parseFloat(p.price) || 0, inventory_id: p.inventory_id || null, packageUnit: p.packageUnit || null })),
                 pricing: {
                     grandTotal: String(total),
                     discount: String(discountValue),
@@ -127,37 +198,37 @@ export default function SaleForm({
                 }
             }];
 
-            if (editReportId) {
+            const inventoryLines = valid.filter((p) => p.inventory_id).map((p) => ({
+                inventory_id: p.inventory_id,
+                package_unit: p.packageUnit,
+                quantity: parseFloat(p.qty) || 1,
+            }));
+            if (hasUnlinkedProducts && editReportId && hasLegacyManualSale) {
                 const { error } = await supabase.from("inspection_reports").update({
-                    branch_id: branchId,
-                    contract_id: contractId || null,
-                    // Net, so the daily income matches what was actually collected —
-                    // same convention the accounting page uses for maintenance invoices.
-                    total_price: netTotal,
-                    selected_services: payload,
+                    branch_id: branchId, contract_id: contractId || null, total_price: netTotal, selected_services: payload,
                 }).eq("id", editReportId);
                 if (error) throw error;
                 const { data } = await supabase.from("inspection_reports").select("report_number").eq("id", editReportId).single();
                 setDone({ id: editReportId, number: data?.report_number ?? null });
             } else {
-                const { data, error } = await supabase.from("inspection_reports").insert({
-                    branch_id: branchId,
-                    vehicle_id: null,
-                    receptionist_id: employeeId,
-                    order_type: "sale",
-                    contract_id: contractId || null,
-                    status: "تم الانتهاء",
-                    odometer_reading: 0,
-                    total_price: netTotal,
-                    selected_services: payload,
-                }).select("id, report_number").single();
+                const { data, error } = await supabase.rpc("save_inventory_sale", {
+                    p_report_id: editReportId,
+                    p_branch_id: branchId,
+                    p_receptionist_id: employeeId,
+                    p_contract_id: contractId || null,
+                    p_total_price: netTotal,
+                    p_selected_services: payload as Json,
+                    p_lines: inventoryLines,
+                });
                 if (error) throw error;
-                setDone({ id: data.id, number: data.report_number });
+                const saved = Array.isArray(data) ? data[0] : data;
+                if (!saved?.id) throw new Error("لم يرجع النظام رقم الفاتورة بعد الحفظ.");
+                setDone({ id: saved.id, number: saved.report_number ?? null });
             }
             showSuccess("تم الحفظ", "تم تسجيل البيع بنجاح.");
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error(err);
-            showError("خطأ", "فشل حفظ البيع: " + (err.message || ""));
+            showError("خطأ", "فشل حفظ البيع: " + (err instanceof Error ? err.message : String(err)));
         } finally {
             setLoading(false);
         }
@@ -166,6 +237,7 @@ export default function SaleForm({
     const resetForNew = () => {
         setDone(null);
         setEditReportId(null);
+        setHasLegacyManualSale(false);
         setOriginalAccountedAt(null);
         setCustomerName("");
         setCustomerPhone("");
@@ -235,7 +307,7 @@ export default function SaleForm({
                                 const pr = parseFloat(p.price) || 0;
                                 return (
                                     <tr key={i}>
-                                        <td className="p-2 border border-gray-400">{p.name}</td>
+                                <td className="p-2 border border-gray-400">{p.name}{p.packageUnit ? ` — ${p.packageUnit}` : ""}</td>
                                         <td className="p-2 border border-gray-400 text-center">{q.toLocaleString()}</td>
                                         <td className="p-2 border border-gray-400 text-center">{pr.toLocaleString()}</td>
                                         <td className="p-2 border border-gray-400 text-center">{(q * pr).toLocaleString()}</td>
@@ -317,16 +389,27 @@ export default function SaleForm({
                         </button>
                     </div>
 
-                    <datalist id="sale-product-names">
-                        {productNames.map((n, i) => <option key={i} value={n} />)}
-                    </datalist>
-
                     <div className="space-y-3">
                         {products.map((p, i) => (
                             <div key={i} className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
                                 <div className="flex-1 space-y-1">
                                     {i === 0 && <label className="text-xs text-muted-foreground">المنتج</label>}
-                                    <input list="sale-product-names" type="text" value={p.name} onChange={(e) => updateProduct(i, "name", e.target.value)} placeholder="اسم المنتج" className="input-field w-full" />
+                                    <input type="text" value={p.name} onChange={(e) => updateProduct(i, "name", e.target.value)} placeholder="اختر مادة من المخزن" readOnly={!!p.inventory_id} className="input-field w-full read-only:opacity-80" />
+                                    <select value={p.inventory_id || ""} onChange={(e) => selectInventoryProduct(i, e.target.value)} className="input-field w-full" aria-label="المادة المخزنية">
+                                        <option value="">اختر المادة المخزنية لربطها بهذا السطر</option>
+                                        {inventoryProducts.map(item => <option key={item.id} value={item.id}>{item.name} — {item.item_code} (المتاح {Number(item.quantity || 0).toLocaleString("en-US")} {baseUnitFor(item)})</option>)}
+                                    </select>
+                                </div>
+                                <div className="w-full sm:w-36 space-y-1">
+                                    {i === 0 && <label className="text-xs text-muted-foreground">التعبئة</label>}
+                                    <select value={p.packageUnit || ""} disabled={!p.inventory_id} onChange={(e) => p.inventory_id && selectPackageUnit(i, p.inventory_id, e.target.value)} className="input-field w-full disabled:opacity-50">
+                                        {!p.inventory_id && <option value="">اختر المادة أولاً</option>}
+                                        {p.inventory_id && packagingOptionsFor(inventoryProducts.find(item => item.id === p.inventory_id)!).map(option => (
+                                            <option key={option.unit} value={option.unit} disabled={option.price === null}>
+                                                {option.unit}{option.price === null ? " — السعر غير محدد" : ` — ${option.price.toLocaleString("en-US")} د.ع`}
+                                            </option>
+                                        ))}
+                                    </select>
                                 </div>
                                 <div className="w-full sm:w-24 space-y-1">
                                     {i === 0 && <label className="text-xs text-muted-foreground">الكمية</label>}
@@ -334,7 +417,7 @@ export default function SaleForm({
                                 </div>
                                 <div className="w-full sm:w-32 space-y-1">
                                     {i === 0 && <label className="text-xs text-muted-foreground">السعر</label>}
-                                    <input type="text" inputMode="decimal" value={withCommasDecimal(p.price)} onChange={(e) => updateProduct(i, "price", decimalsOnly(e.target.value))} placeholder="0" className="input-field w-full text-center" />
+                                    <input type="text" inputMode="decimal" value={withCommasDecimal(p.price)} onChange={(e) => updateProduct(i, "price", decimalsOnly(e.target.value))} placeholder="0" readOnly={!!p.inventory_id} className="input-field w-full text-center read-only:opacity-80" />
                                 </div>
                                 <button onClick={() => removeProduct(i)} disabled={products.length === 1} className="p-2.5 bg-rose-600/10 text-rose-400 border border-rose-500/20 rounded-xl hover:bg-rose-600 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed shrink-0" title="حذف">
                                     <Trash2 size={18} />
