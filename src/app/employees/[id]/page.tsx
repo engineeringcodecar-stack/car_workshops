@@ -9,7 +9,7 @@ import { useAuth } from "@/lib/AuthProvider";
 import { showConfirm, showError, showSuccess } from "@/lib/alerts";
 
 type TargetRow = { id: string; metric_key: string; title: string; target_value: number; unit: string; period_start: string; period_end: string; inventory_id?: string | null; service_filter?: string | null };
-type Task = { id: string; title: string; details: string | null; due_date: string | null; status: string; created_at: string };
+type Task = { id: string; title: string; details: string | null; due_date: string | null; status: string; created_at: string; source?: string | null };
 type Complaint = { id: string; report_id: string | null; client_id?: string | null; summary: string; details: string | null; status: string; received_at: string };
 type StaffTable = "employee_targets" | "employee_tasks" | "service_complaints";
 type Preset = "today" | "week" | "month" | "all" | "custom";
@@ -112,7 +112,7 @@ export default function EmployeeProfilePage() {
             let reportPicker = supabase.from("inspection_reports").select("id,report_number,created_at,vehicle_id,vehicles(client_id,make,model,plate_number,clients(name))").order("created_at", { ascending: false }).limit(300);
             if (empBranch) reportPicker = reportPicker.eq("branch_id", empBranch);
             const [taskRows, complaintRows, receptionRows, techRows, techNameRows, reportRows, stockRows] = await Promise.all([
-                (supabase as any).from("employee_tasks").select("id,title,details,due_date,status,created_at").eq("employee_id", id).is("deleted_at", null).order("created_at", { ascending: false }),
+                (supabase as any).from("employee_tasks").select("id,title,details,due_date,status,created_at,source").eq("employee_id", id).is("deleted_at", null).order("created_at", { ascending: false }),
                 (supabase as any).from("service_complaints").select("id,report_id,client_id,summary,details,status,received_at").eq("employee_id", id).is("deleted_at", null).order("received_at", { ascending: false }),
                 dated((supabase as any).from("inspection_reports").select(`${fields},receptionist_id`).eq("receptionist_id", id)).order("created_at", { ascending: false }).limit(1000),
                 dated((supabase as any).from("inspection_reports").select(`${fields},technician_id`).eq("technician_id", id)).order("created_at", { ascending: false }).limit(1000),
@@ -336,14 +336,14 @@ export default function EmployeeProfilePage() {
             <div id="tasks" className="glass-card p-5 rounded-2xl scroll-mt-24">
                 <h2 className="font-bold text-lg flex items-center gap-2 mb-4"><ClipboardList className="text-cyan-400" />{isOwn ? "مهامي" : "المهام"}</h2>
                 {tasksInPeriod.map(task => { const late = task.status !== "مكتملة" && !!task.due_date && task.due_date < today(); return <div key={task.id} className="border border-border rounded-xl p-4 mb-3">
-                    <div className="flex justify-between gap-3"><b>{task.title}</b><span className={`text-xs whitespace-nowrap ${late ? "text-rose-400 font-bold" : "text-muted-foreground"}`}>{task.due_date ? `${late ? "متأخرة • " : ""}${task.due_date}` : "بدون موعد"}</span></div>
+                    <div className="flex justify-between gap-3"><b>{task.source === "auto" && <span className="text-[11px] ml-2 px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300">تلقائية</span>}{task.title}</b><span className={`text-xs whitespace-nowrap ${late ? "text-rose-400 font-bold" : "text-muted-foreground"}`}>{task.due_date ? `${late ? "متأخرة • " : ""}${task.due_date}` : "بدون موعد"}</span></div>
                     {task.details && <p className="text-sm text-muted-foreground mt-2">{task.details}</p>}
                     <div className="flex flex-wrap justify-between items-center gap-2 mt-3">
                         <span className={task.status === "مكتملة" ? "text-emerald-400 text-xs" : "text-amber-300 text-xs"}>{task.status}</span>
                         <div className="flex items-center gap-3">
                             {!canManage && isOwn && task.status !== "مكتملة" && <button onClick={() => changeTaskStatus(task, "مكتملة")} className="text-xs font-bold text-cyan-400">إنجاز المهمة</button>}
                             {canManage && <select value={task.status} onChange={e => changeTaskStatus(task, e.target.value)} className="bg-background border border-border rounded-lg p-1 text-xs"><option>معلقة</option><option>قيد التنفيذ</option><option>مكتملة</option></select>}
-                            {canManage && <RowActions onEdit={() => openTask(task)} onDelete={() => softDelete("employee_tasks", task.id, "المهمة", task.title)} />}
+                            {canManage && (task.source === "auto" ? <button onClick={() => softDelete("employee_tasks", task.id, "المهمة", task.title)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-rose-400"><Trash2 size={13} />حذف</button> : <RowActions onEdit={() => openTask(task)} onDelete={() => softDelete("employee_tasks", task.id, "المهمة", task.title)} />)}
                         </div>
                     </div>
                 </div>; })}

@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/AuthProvider";
 import { showError, showSuccess } from "@/lib/alerts";
 
-type Task = { id: string; title: string; details: string | null; due_date: string | null; status: string; created_at: string; completed_at: string | null };
+type Task = { id: string; title: string; details: string | null; due_date: string | null; status: string; created_at: string; completed_at: string | null; source?: string | null; auto_target?: number | null; auto_done?: number | null; auto_unit?: string | null };
 const dayOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const localDay = (iso?: string | null) => (iso ? dayOf(new Date(iso)) : "");
 
@@ -21,8 +21,10 @@ export default function MyTasksPage() {
 
     const load = useCallback(async () => {
         if (!employeeId) return;
+        // The system writes/updates today's automatic sales tasks before the list is read.
+        await Promise.resolve((supabase as any).rpc("refresh_my_sales_tasks")).catch(() => null);
         const { data, error } = await (supabase as any).from("employee_tasks")
-            .select("id,title,details,due_date,status,created_at,completed_at")
+            .select("id,title,details,due_date,status,created_at,completed_at,source,auto_target,auto_done,auto_unit")
             .eq("employee_id", employeeId).is("deleted_at", null)
             .order("due_date", { ascending: true, nullsFirst: false }).order("created_at", { ascending: false });
         if (error) showError("تعذر تحميل المهام", String(error.message || error));
@@ -59,13 +61,14 @@ export default function MyTasksPage() {
 
         <section className="space-y-3">
             {open.map(task => { const isLate = !!task.due_date && task.due_date < today; return <div key={task.id} className={`glass-card rounded-2xl p-5 border ${isLate ? "border-rose-500/40" : "border-transparent"}`}>
-                <div className="flex justify-between gap-3"><b className="text-lg">{task.title}</b>
+                <div className="flex justify-between gap-3"><b className="text-lg">{task.source === "auto" && <span className="text-[11px] align-middle ml-2 px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 font-bold">تلقائية</span>}{task.title}</b>
                     <span className={`text-xs whitespace-nowrap ${isLate ? "text-rose-400 font-bold" : "text-muted-foreground"}`}>{task.due_date ? `${isLate ? "متأخرة • " : task.due_date === today ? "اليوم • " : ""}${task.due_date}` : "بدون موعد"}</span></div>
                 {task.details && <p className="text-sm text-muted-foreground mt-2 whitespace-pre-line">{task.details}</p>}
+                {task.source === "auto" && Number(task.auto_target) > 0 && <div className="mt-3"><div className="h-2 bg-muted rounded-full overflow-hidden"><div className="h-full bg-violet-500" style={{ width: `${Math.min(100, Math.round(Number(task.auto_done || 0) / Number(task.auto_target) * 100))}%` }} /></div><div className="text-xs text-muted-foreground mt-1">المنجز اليوم {Number(task.auto_done || 0).toLocaleString("en-US")} من {Number(task.auto_target).toLocaleString("en-US")} {task.auto_unit || ""}</div></div>}
                 <div className="flex justify-between items-center mt-4">
                     <span className="text-xs text-amber-300">{task.status}</span>
-                    <button disabled={busy === task.id} onClick={() => complete(task)} className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-bold flex items-center gap-2 disabled:opacity-60">
-                        {busy === task.id ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}إنجاز المهمة</button>
+                    {task.source === "auto" ? <span className="text-xs text-muted-foreground">تكتمل تلقائياً عند تحقيق الهدف</span> : <button disabled={busy === task.id} onClick={() => complete(task)} className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-bold flex items-center gap-2 disabled:opacity-60">
+                        {busy === task.id ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}إنجاز المهمة</button>}
                 </div>
             </div>; })}
             {open.length === 0 && <div className="glass-card rounded-2xl p-10 text-center text-muted-foreground">ممتاز، لا توجد مهام مفتوحة حالياً.</div>}

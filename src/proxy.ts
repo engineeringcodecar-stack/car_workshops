@@ -13,7 +13,7 @@ const PUBLIC_PREFIXES = ["/login", "/b/", "/share/", "/api/"];
 // list only loses the redirect: it still shows nothing without a session.
 const APP_SECTIONS = new Set([
     "accounting", "alerts", "analytics", "assistant", "audit", "contracts", "customers",
-    "dashboard", "documents", "employees", "my", "financial-reports", "hr", "inspection",
+    "dashboard", "documents", "employees", "my", "inventory", "sales-reports", "sales-plan", "financial-reports", "hr", "inspection",
     "payroll", "print", "reception", "reports", "services",
     "settings", "status", "sticker", "suggestions", "technician-report", "warranty",
     "whatsapp", "work-orders",

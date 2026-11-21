@@ -26,6 +26,7 @@ import {
     Landmark,
     TrendingUp,
     ListTodo,
+    Target,
     UserRound,
 } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
@@ -69,9 +70,10 @@ export function Sidebar() {
     useEffect(() => {
         if (!employeeId) return;
         let cancelled = false;
-        (supabase as any).from('employee_tasks').select('id', { count: 'exact', head: true })
+        // Let the system write today's automatic sales tasks first (does nothing for non-receptionists).
+        Promise.resolve((supabase as any).rpc('refresh_my_sales_tasks')).catch(() => null).then(() => (supabase as any).from('employee_tasks').select('id', { count: 'exact', head: true })
             .eq('employee_id', employeeId).neq('status', 'مكتملة').is('deleted_at', null)
-            .then(({ count, error }: { count: number | null; error: unknown }) => { if (!cancelled) setOpenTasks(error ? 0 : count || 0); });
+            ).then(({ count, error }: { count: number | null; error: unknown }) => { if (!cancelled) setOpenTasks(error ? 0 : count || 0); });
         return () => { cancelled = true; };
     }, [employeeId, pathname]);
 
@@ -126,6 +128,7 @@ export function Sidebar() {
                 { href: "/technician-report", label: "تقرير الفنيين اليومي", icon: <Wrench size={20} />, roles: ["Owner", "Admin", "Supervisor"] },
                 { href: "/financial-reports", label: "السجلات والدفاتر (Excel)", icon: <FileSpreadsheet size={20} />, roles: ["Owner", "Admin"] },
                 { href: "/sales-reports", label: "تقارير المبيعات والتحليل", icon: <TrendingUp size={20} />, roles: ["Owner", "Admin", "Supervisor"] },
+                { href: "/sales-plan", label: "خطة المبيعات الشهرية", icon: <Target size={20} />, roles: ["Owner", "Admin", "Supervisor"] },
             ]
         },
         {
@@ -191,6 +194,7 @@ export function Sidebar() {
             if (item.href === '/technician-report') return false;
             if (item.href === '/financial-reports') return false;
             if (item.href === '/sales-reports') return employeeRole === 'Supervisor';
+            if (item.href === '/sales-plan') return employeeRole === 'Supervisor';
             if (item.href === '/inventory') return false;
             if (item.href === '/hr/employees') return false;
             // العقود: money on credit — only for staff explicitly granted the tab.
