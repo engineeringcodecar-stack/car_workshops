@@ -25,6 +25,8 @@ import {
     UserCircle,
     Landmark,
     TrendingUp,
+    ListTodo,
+    UserRound,
 } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import NotificationBell from "./NotificationBell";
@@ -46,7 +48,8 @@ export function Sidebar() {
         permissionCustomers,
         permissionReports,
         permissionEmployees,
-        allowedPages
+        allowedPages,
+        employeeId
     } = useAuth();
     const { t } = useLanguage();
     const [isCollapsed, setIsCollapsed] = useState(false);
@@ -69,6 +72,14 @@ export function Sidebar() {
     };
     
     const navCategories: NavCategory[] = [
+        {
+            // Every employee's own page, opened from the session (see src/app/my).
+            title: "حسابي",
+            items: [
+                { href: "/my/tasks", label: "مهامي", icon: <ListTodo size={20} /> },
+                { href: "/my/profile", label: "حسابي الشخصي", icon: <UserRound size={20} /> },
+            ]
+        },
         {
             title: "العمليات (Operations)",
             items: [
@@ -144,6 +155,9 @@ export function Sidebar() {
     const authorizedCategories = navCategories.map(category => ({
         ...category,
         items: category.items.filter(item => {
+            // «مهامي» and «حسابي الشخصي» belong to everyone with an employee record.
+            if (item.href.startsWith('/my/')) return !!employeeId;
+
             // Owner and Admin always see every tab.
             if (employeeRole === 'Owner' || employeeRole === 'Admin') return true;
 
@@ -252,7 +266,7 @@ export function Sidebar() {
                             </h3>
                             <div className="space-y-1">
                                 {category.items.map((item) => {
-                                    const isActive = pathname === item.href;
+                                    const isActive = pathname === item.href || (item.href === '/my/profile' && !!employeeId && pathname === `/employees/${employeeId}`);
                                     return (
                                         <Link
                                             key={item.href}
@@ -345,7 +359,7 @@ export function Sidebar() {
                             )}
                             <div className="space-y-1">
                                 {category.items.map((item) => {
-                                    const isActive = pathname === item.href;
+                                    const isActive = pathname === item.href || (item.href === '/my/profile' && !!employeeId && pathname === `/employees/${employeeId}`);
                                     return (
                                         <Link
                                             key={item.href}
