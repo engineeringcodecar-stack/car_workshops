@@ -351,87 +351,36 @@ export interface Database {
           id: string
           branch_id: string | null
           item_code: string
-          murabba_id: string | null
           name: string
           category: string
-          purchase_price: number | null
+          purchase_price: number
           sell_price: number
           quantity: number | null
           min_quantity: number | null
-          base_unit: string | null
-          unit1: string | null
-          unit2: string | null
-          unit3: string | null
-          unit1_to_unit2: number | null
-          unit2_to_unit3: number | null
-          price_unit1: number | null
-          price_unit2: number | null
-          price_unit3: number | null
-          price_wholesale: number | null
-          last_purchase_price: number | null
-          supplier: string | null
-          store: string | null
-          location: string | null
-          special_price: number | null
-          notes: string | null
           created_at: string
         }
         Insert: {
           id?: string
           branch_id?: string | null
           item_code: string
-          murabba_id?: string | null
           name: string
           category: string
-          purchase_price?: number | null
+          purchase_price: number
           sell_price: number
           quantity?: number | null
           min_quantity?: number | null
-          base_unit?: string | null
-          unit1?: string | null
-          unit2?: string | null
-          unit3?: string | null
-          unit1_to_unit2?: number | null
-          unit2_to_unit3?: number | null
-          price_unit1?: number | null
-          price_unit2?: number | null
-          price_unit3?: number | null
-          price_wholesale?: number | null
-          last_purchase_price?: number | null
-          supplier?: string | null
-          store?: string | null
-          location?: string | null
-          special_price?: number | null
-          notes?: string | null
           created_at?: string
         }
         Update: {
           id?: string
           branch_id?: string | null
           item_code?: string
-          murabba_id?: string | null
           name?: string
           category?: string
-          purchase_price?: number | null
+          purchase_price?: number
           sell_price?: number
           quantity?: number | null
           min_quantity?: number | null
-          base_unit?: string | null
-          unit1?: string | null
-          unit2?: string | null
-          unit3?: string | null
-          unit1_to_unit2?: number | null
-          unit2_to_unit3?: number | null
-          price_unit1?: number | null
-          price_unit2?: number | null
-          price_unit3?: number | null
-          price_wholesale?: number | null
-          last_purchase_price?: number | null
-          supplier?: string | null
-          store?: string | null
-          location?: string | null
-          special_price?: number | null
-          notes?: string | null
           created_at?: string
         }
         Relationships: [
@@ -584,7 +533,6 @@ export interface Database {
           branch_id: string | null
           inventory_id: string | null
           item_code: string | null
-          reference_id: string | null
           item_name: string | null
           transaction_type: string
           quantity_changed: number
@@ -598,7 +546,6 @@ export interface Database {
           branch_id?: string | null
           inventory_id?: string | null
           item_code?: string | null
-          reference_id?: string | null
           item_name?: string | null
           transaction_type: string
           quantity_changed: number
@@ -612,7 +559,6 @@ export interface Database {
           branch_id?: string | null
           inventory_id?: string | null
           item_code?: string | null
-          reference_id?: string | null
           item_name?: string | null
           transaction_type?: string
           quantity_changed?: number
@@ -638,66 +584,6 @@ export interface Database {
           }
         ]
       }
-      inventory_sale_lines: {
-        Row: {
-          id: string
-          report_id: string
-          inventory_id: string | null
-          branch_id: string | null
-          item_code: string | null
-          item_name: string
-          package_unit: string
-          quantity: number
-          stock_quantity: number
-          unit_price: number
-          total_price: number
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          report_id: string
-          inventory_id?: string | null
-          branch_id?: string | null
-          item_code?: string | null
-          item_name: string
-          package_unit: string
-          quantity: number
-          stock_quantity: number
-          unit_price: number
-          total_price: number
-          created_at?: string
-        }
-        Update: {
-          id?: string
-          report_id?: string
-          inventory_id?: string | null
-          branch_id?: string | null
-          item_code?: string | null
-          item_name?: string
-          package_unit?: string
-          quantity?: number
-          stock_quantity?: number
-          unit_price?: number
-          total_price?: number
-          created_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "inventory_sale_lines_report_id_fkey"
-            columns: ["report_id"]
-            isOneToOne: false
-            referencedRelation: "inspection_reports"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "inventory_sale_lines_inventory_id_fkey"
-            columns: ["inventory_id"]
-            isOneToOne: false
-            referencedRelation: "inventory"
-            referencedColumns: ["id"]
-          }
-        ]
-      }
     }
     Views: {
       [_ in never]: never
@@ -705,22 +591,6 @@ export interface Database {
     Functions: {
       get_contract_worksheets: {
         Args: { p_token: string }
-        Returns: Json
-      }
-      save_inventory_sale: {
-        Args: {
-          p_report_id: string | null
-          p_branch_id: string
-          p_receptionist_id: string | null
-          p_contract_id: string | null
-          p_total_price: number
-          p_selected_services: Json
-          p_lines: Json
-        }
-        Returns: { id: string; report_number: number }[]
-      }
-      import_inventory_rows: {
-        Args: { p_mode: string; p_rows: Json }
         Returns: Json
       }
     }

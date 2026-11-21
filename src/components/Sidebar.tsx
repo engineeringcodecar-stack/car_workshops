@@ -20,7 +20,6 @@ import {
     Users,
     ClipboardList,
     FileSpreadsheet,
-    Package,
     ClipboardCheck,
     UserCircle,
     Landmark,
@@ -76,7 +75,6 @@ export function Sidebar() {
                 // { href: "/assistant", label: "المساعد الذكي", icon: <Sparkles size={20} />, roles: ["Owner", "Admin"] },
                 { href: "/reception", label: "الاستقبال وأوامر العمل", icon: <ClipboardList size={20} /> },
                 { href: "/suggestions", label: "إدارة الاقتراحات", icon: <FileSpreadsheet size={20} /> },
-                { href: "/inventory", label: "المخزن الموحد (تجريبي)", icon: <Package size={20} />, roles: ["Owner", "Admin"] },
                 // { href: "/services", label: "الفحص والصيانة", icon: <Hammer size={20} />, roles: ["Owner", "Admin", "Supervisor"] },
                 { href: "/work-orders", label: "ساحة الورشة (العمل الحي)", icon: <Wrench size={20} /> },
                 { href: "/audit", label: "التدقيق والمحاسبة", icon: <ClipboardCheck size={20} />, roles: ["Owner", "Admin", "Supervisor"] },
@@ -163,7 +161,6 @@ export function Sidebar() {
             // تقرير الفنيين: مخفي عن الموظفين افتراضياً — يظهر فقط لمن يُمنح التبويب صراحةً.
             if (item.href === '/technician-report') return false;
             if (item.href === '/financial-reports') return false;
-            if (item.href === '/inventory') return false;
             if (item.href === '/hr/employees') return false;
             // العقود: money on credit — only for staff explicitly granted the tab.
             if (item.href === '/contracts') return false;
