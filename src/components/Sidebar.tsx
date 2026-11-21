@@ -171,6 +171,8 @@ export function Sidebar() {
         items: category.items.filter(item => {
             // «مهامي» and «حسابي الشخصي» belong to everyone with an employee record.
             if (item.href.startsWith('/my/')) return !!employeeId;
+            // A technician account sees only its own pages.
+            if (employeeRole === 'Technician') return false;
 
             // Owner and Admin always see every tab.
             if (employeeRole === 'Owner' || employeeRole === 'Admin') return true;

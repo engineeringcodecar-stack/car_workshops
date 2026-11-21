@@ -517,7 +517,7 @@ export default function SettingsPage() {
                                                 emp.role === 'Supervisor' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
                                                 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
                                             }`}>
-                                                {emp.role === 'Owner' ? 'مالك النظام' : emp.role === 'Admin' ? 'مدير عام' : emp.role === 'Supervisor' ? 'مشرف فني' : 'استقبال'}
+                                                {emp.role === 'Owner' ? 'مالك النظام' : emp.role === 'Admin' ? 'مدير عام' : emp.role === 'Supervisor' ? 'مشرف فني' : emp.role === 'Technician' ? 'فني' : 'استقبال'}
                                             </span>
                                         </td>
                                         <td className="py-4 px-4 text-muted-foreground font-mono" dir="ltr">{emp.phone || 'لا يوجد'}</td>
@@ -629,6 +629,7 @@ export default function SettingsPage() {
                                     <select id="emp-role" name="role" className="w-full bg-cyan-950/20 border border-cyan-900/50 font-bold rounded-xl p-3 text-cyan-400 focus:border-cyan-500" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
                                         <option value="Receptionist">موظف استقبال</option>
                                         <option value="Supervisor">مشرف فني (ورشة)</option>
+                                        <option value="Technician">فني (يشوف حسابه ومهامه فقط)</option>
                                         {/* Only a real admin may hand out admin-level roles — the server
                                             enforces the same rule, so hide what would just fail. */}
                                         {isAdmin && <option value="Admin">مدير عام (أقصى صلاحية)</option>}
@@ -749,6 +750,7 @@ export default function SettingsPage() {
                                     <select id="edit-emp-role" name="role" className="w-full bg-cyan-950/20 border border-cyan-900/50 font-bold rounded-xl p-3 text-cyan-400 focus:border-cyan-500" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
                                         <option value="Receptionist">موظف استقبال</option>
                                         <option value="Supervisor">مشرف فني (ورشة)</option>
+                                        <option value="Technician">فني (يشوف حسابه ومهامه فقط)</option>
                                         {/* Only a real admin may hand out admin-level roles — the server
                                             enforces the same rule, so hide what would just fail. */}
                                         {isAdmin && <option value="Admin">مدير عام (أقصى صلاحية)</option>}

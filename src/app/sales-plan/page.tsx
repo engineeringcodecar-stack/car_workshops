@@ -9,6 +9,10 @@ import { showConfirm, showError, showSuccess } from "@/lib/alerts";
 type Plan = { id: string; branch_id: string; month: string; target_amount: number | null; notes: string | null };
 type Item = { id: string; kind: "service" | "product"; service_key: string | null; inventory_id: string | null; label: string; unit: string; target_qty: number };
 type Progress = { item_id: string | null; employee_id: string | null; sold: number };
+type MonthRow = { month: string; orders: number; sales: number; amount: number | null; oil_changes: number };
+type StaffRow = { id: string; name: string; role: string; permission_reception: boolean | null; allowed_pages: string[] | null };
+// Same rule as sells_at_reception() in the database: Receptionists, and Supervisors with the reception page.
+const worksReception = (e: StaffRow) => e.role === "Receptionist" || (e.role === "Supervisor" && (Array.isArray(e.allowed_pages) ? e.allowed_pages.includes("reception") : !!e.permission_reception));
 
 // Work-order services that can carry a monthly target (cars that got the service).
 const SERVICES: Record<string, string> = { engineOil: "تبديل زيت المحرك", oilFilter: "فلتر زيت المحرك", airFilter: "فلتر الهواء", acFilter: "فلتر التبريد", brakeFluid: "زيت المكابح", coolant: "ماء الراديتر", battery: "البطارية", engineBelts: "قايش المحرك", brakePads: "دسكات السيارة", sparkPlugs: "شمعات الاحتراق", gearboxHydraulic: "هايدروليك الكير", differentialOil: "زيت الدفرنس", tires: "الإطارات", carWash: "غسل السيارة" };
@@ -27,6 +31,7 @@ export default function SalesPlanPage() {
     const [items, setItems] = useState<Item[]>([]);
     const [progress, setProgress] = useState<Progress[]>([]);
     const [staff, setStaff] = useState<{ id: string; name: string }[]>([]);
+    const [history, setHistory] = useState<MonthRow[]>([]);
     const [stock, setStock] = useState<{ id: string; name: string; base_unit: string | null }[]>([]);
     const [loading, setLoading] = useState(true);
     const [amountDraft, setAmountDraft] = useState("");
@@ -49,13 +54,15 @@ export default function SalesPlanPage() {
             const monthDate = `${month}-01`;
             const [planRow, staffRows, stockRows] = await Promise.all([
                 (supabase as any).from("sales_plans").select("id,branch_id,month,target_amount,notes").eq("branch_id", branchId).eq("month", monthDate).maybeSingle(),
-                supabase.from("employees").select("id,name").eq("branch_id", branchId).eq("role", "Receptionist").order("name"),
+                (supabase as any).from("employees").select("id,name,role,permission_reception,allowed_pages").eq("branch_id", branchId).in("role", ["Receptionist", "Supervisor"]).order("name"),
                 isAdmin ? (supabase as any).from("inventory").select("id,name,base_unit").eq("branch_id", branchId).order("name").limit(2000) : Promise.resolve({ data: [] }),
             ]);
             if (planRow.error) throw planRow.error;
             const p = planRow.data as Plan | null;
             setPlan(p); setAmountDraft(p?.target_amount != null ? String(p.target_amount) : "");
-            setStaff((staffRows.data || []) as { id: string; name: string }[]);
+            setStaff(((staffRows.data || []) as StaffRow[]).filter(worksReception).map(e => ({ id: e.id, name: e.name })));
+            const hist = await (supabase as any).rpc("branch_monthly_sales", { p_branch: branchId });
+            setHistory(hist.error ? [] : (hist.data || []) as MonthRow[]);
             setStock((stockRows.data || []) as { id: string; name: string; base_unit: string | null }[]);
             if (p) {
                 const [itemRows, prog] = await Promise.all([
@@ -126,7 +133,7 @@ export default function SalesPlanPage() {
     return <main className="min-h-screen p-5 md:p-8 font-ibm" dir="rtl"><div className="max-w-6xl mx-auto space-y-5">
         <header className="glass-card p-6 rounded-2xl flex flex-wrap items-end justify-between gap-4">
             <div className="flex items-center gap-4"><div className="w-14 h-14 rounded-2xl bg-violet-500/10 text-violet-400 flex items-center justify-center"><Target size={28} /></div>
-                <div><h1 className="text-2xl font-bold">خطة المبيعات الشهرية</h1><p className="text-muted-foreground text-sm">الهدف يتقسم بالتساوي على موظفي الاستقبال بالفرع، والسستم يكتب لكل واحد مهامه اليومية تلقائياً.</p></div></div>
+                <div><h1 className="text-2xl font-bold">خطة المبيعات الشهرية</h1><p className="text-muted-foreground text-sm">الهدف يتقسم بالتساوي على موظفي الاستقبال بالفرع (ومن عنده استقبال من المشرفين)، والسستم يكتب لكل واحد مهامه اليومية تلقائياً.</p></div></div>
             <div className="flex flex-wrap gap-2">
                 <select className="input-field" value={branchId} onChange={e => setBranchId(e.target.value)} disabled={!isAdmin && !!employeeBranchId}>{branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
                 <input type="month" className="input-field" value={month} onChange={e => e.target.value && setMonth(e.target.value)} />
@@ -164,6 +171,17 @@ export default function SalesPlanPage() {
                         {isAdmin && <td className="p-3">{r.removable ? <button onClick={() => removeItem(r.removable!)} className="text-muted-foreground hover:text-rose-400"><Trash2 size={15} /></button> : null}</td>}
                     </tr>; })}</tbody>
                 </table>{rows.length === 0 && <div className="text-center text-sm text-muted-foreground py-8">أضف هدف المبيعات أو بنود الخطة.</div>}</div>
+            </section>}
+
+            {history.length > 0 && <section className="glass-card rounded-2xl overflow-hidden">
+                <div className="p-5 border-b border-border"><h2 className="font-bold text-lg">السجل الشهري للفرع منذ بداية النظام</h2><p className="text-xs text-muted-foreground mt-1">اضغط على شهر لعرض خطته.</p></div>
+                <div className="overflow-auto"><table className="w-full min-w-[560px] text-sm text-right">
+                    <thead className="bg-muted/40"><tr><th className="p-3">الشهر</th><th className="p-3">سيارات (أوامر عمل)</th><th className="p-3">مبيعات مباشرة</th><th className="p-3">تبديل زيت</th>{history.some(h => h.amount != null) && <th className="p-3">القيمة</th>}</tr></thead>
+                    <tbody>{history.map(h => { const key = String(h.month).slice(0, 7); return <tr key={key} onClick={() => setMonth(key)} className={`border-t border-border cursor-pointer hover:bg-muted/30 ${key === month ? "bg-violet-500/10" : ""}`}>
+                        <td className="p-3 font-bold">{key}</td><td className="p-3">{fmt(h.orders)}</td><td className="p-3">{fmt(h.sales)}</td><td className="p-3">{fmt(h.oil_changes)}</td>
+                        {h.amount != null && <td className="p-3 whitespace-nowrap">{fmt(h.amount)} د.ع</td>}
+                    </tr>; })}</tbody>
+                </table></div>
             </section>}
         </>}
     </div></main>;

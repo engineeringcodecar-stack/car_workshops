@@ -98,6 +98,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const branchKeyRef = useRef<string | null>(null);
     pathnameRef.current = pathname;
 
+    // A technician account only has «مهامي» and «حسابي الشخصي»; any other page sends it back to
+    // its tasks. (The database closes everything else to it too; this keeps it off empty pages.)
+    useEffect(() => {
+        if (employeeRole !== "Technician" || !employeeId || !pathname) return;
+        const allowed = pathname.startsWith("/my/") || pathname === `/employees/${employeeId}` || pathname === "/login";
+        if (!allowed) router.replace("/my/tasks");
+    }, [employeeRole, employeeId, pathname, router]);
+
     // A slow connection (or a session renewal holding the auth lock) is temporary: retry
     // it a few times before telling the user anything. Giving up on the first try left
     // staff with no role at all, i.e. "غير مصرح بالوصول" on every page.

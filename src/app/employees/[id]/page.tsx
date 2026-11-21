@@ -7,6 +7,7 @@ import { ArrowRight, CalendarRange, ClipboardList, History, Loader2, MessageSqua
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/AuthProvider";
 import { showConfirm, showError, showSuccess } from "@/lib/alerts";
+import { SERVICE_LABELS } from "@/app/technician-report/report";
 
 type TargetRow = { id: string; metric_key: string; title: string; target_value: number; unit: string; period_start: string; period_end: string; inventory_id?: string | null; service_filter?: string | null };
 type Task = { id: string; title: string; details: string | null; due_date: string | null; status: string; created_at: string; source?: string | null };
@@ -35,22 +36,19 @@ function presetRange(preset: Preset): { from: string; to: string } {
 }
 const inRange = (day: string, from: string, to: string) => !!day && (!from || day >= from) && (!to || day <= to);
 
-const SERVICE_LABELS: Record<string, string> = { engineOil: "زيت المحرك", oilFilter: "فلتر زيت المحرك", airFilter: "فلتر الهواء", acFilter: "فلتر التبريد", brakeFluid: "زيت المكابح", coolant: "ماء الراديتر", battery: "البطارية", engineBelts: "قايش المحرك", brakePads: "دسكات السيارة", sparkPlugs: "شمعات الاحتراق", gearboxHydraulic: "هايدروليك الكير", differentialOil: "زيت الدفرنس", tires: "الإطارات", carWash: "غسل السيارة" };
-const servicesOf = (row: any) => {
-    const payload = Array.isArray(row?.selected_services) ? row.selected_services[0] : row?.selected_services;
-    const serviceNames = Object.keys(payload?.services || {}).map(key => SERVICE_LABELS[key] || key);
-    serviceNames.push(...Object.keys(payload?.freeServices || {}).filter(key => payload.freeServices[key]).map(key => SERVICE_LABELS[key] || key));
-    if (Array.isArray(payload?.customServices)) serviceNames.push(...payload.customServices.map((service: any) => String(service?.label || service?.name || "")).filter(Boolean));
-    return serviceNames.join("، ") || "—";
+// One order as employee_work_orders() returns it (prices and customer only when the viewer may see them).
+type WorkRow = {
+    id: string; report_number: number; status: string; order_type: string | null; branch_name: string | null;
+    created_at: string; completed_at: string | null; as_receptionist: boolean; as_technician: boolean;
+    service_keys: string[] | null; custom_services: string[] | null; products: { inventory_id: string | null; qty: unknown }[] | null;
+    rating: number | null; total_price: number | null; client_id: string | null; client_name: string | null;
+    make: string | null; model: string | null; plate_number: string | null;
 };
-const isAssignedTechByName = (row: any, name: string) => {
-    const payload = Array.isArray(row?.selected_services) ? row.selected_services[0] : row?.selected_services;
-    const names = [...(Array.isArray(payload?.technicians) ? payload.technicians.map((tech: any) => String(tech?.name || "")) : []), String(payload?.technicianName || "")];
-    return names.some((techName: string) => techName.trim() && techName.trim() === name.trim());
-};
+// Only what was actually done on the car: services marked «يحتاج تغيير», free services and custom lines.
+const serviceNames = (row: WorkRow) => [...(row.service_keys || []).map(key => SERVICE_LABELS[key] || key), ...(row.custom_services || [])];
+const servicesOf = (row: WorkRow) => serviceNames(row).join("، ") || "—";
 const one = <T,>(v: T | T[] | null | undefined): T | null => (Array.isArray(v) ? v[0] ?? null : v ?? null);
 
-const ORDER_FIELDS = "id,report_number,status,order_type,branch_id,branches(name),vehicle_id,vehicles(client_id,make,model,plate_number,clients(name)),created_at,completed_at,selected_services";
 const emptyTarget = () => ({ title: "", metric_key: "cars_received", target_value: "10", unit: "سيارة", period_start: today(), period_end: today(), inventory_id: "", service_filter: "" });
 const emptyTask = () => ({ title: "", details: "", due_date: today() });
 const emptyComplaint = () => ({ report_id: "", summary: "", details: "" });
@@ -64,8 +62,8 @@ export default function EmployeeProfilePage() {
     const [targets, setTargets] = useState<TargetRow[]>([]);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [complaints, setComplaints] = useState<Complaint[]>([]);
-    const [received, setReceived] = useState<any[]>([]);
-    const [assigned, setAssigned] = useState<any[]>([]);
+    const [received, setReceived] = useState<WorkRow[]>([]);
+    const [assigned, setAssigned] = useState<WorkRow[]>([]);
     const [reports, setReports] = useState<any[]>([]);
     const [stockItems, setStockItems] = useState<{ id: string; name: string }[]>([]);
     const [loading, setLoading] = useState(true);
@@ -97,43 +95,32 @@ export default function EmployeeProfilePage() {
             if (targetRows.error) throw targetRows.error;
             const allTargets = (targetRows.data || []) as TargetRow[];
 
-            // Orders are fetched for the chosen period widened to cover the visible targets,
-            // so a target's progress does not depend on the period being looked at.
-            const shown = allTargets.filter(t => !range.from || !range.to || (t.period_end >= range.from && t.period_start <= range.to));
-            let from = range.from, to = range.to;
-            for (const t of shown) { if (from && t.period_start < from) from = t.period_start; if (to && t.period_end > to) to = t.period_end; }
-            const dated = (q: any) => {
-                if (from) q = q.gte("created_at", new Date(`${from}T00:00:00`).toISOString());
-                if (to) q = q.lte("created_at", new Date(`${to}T23:59:59.999`).toISOString());
-                return q;
-            };
-            const fields = `${ORDER_FIELDS},technician_rating${canSeePrices ? ",total_price" : ""}`;
+            // The employee's whole history (since the system started) in one call: as receptionist, and
+            // as technician by account or by the name on the work card in their branch.
             const empBranch = emp.data?.branch_id || null;
+            const managesHere = isAdmin || employeeRole === "Supervisor";
             let reportPicker = supabase.from("inspection_reports").select("id,report_number,created_at,vehicle_id,vehicles(client_id,make,model,plate_number,clients(name))").order("created_at", { ascending: false }).limit(300);
             if (empBranch) reportPicker = reportPicker.eq("branch_id", empBranch);
-            const [taskRows, complaintRows, receptionRows, techRows, techNameRows, reportRows, stockRows] = await Promise.all([
+            const [taskRows, complaintRows, workRowsRes, reportRows, stockRows] = await Promise.all([
                 (supabase as any).from("employee_tasks").select("id,title,details,due_date,status,created_at,source").eq("employee_id", id).is("deleted_at", null).order("created_at", { ascending: false }),
                 (supabase as any).from("service_complaints").select("id,report_id,client_id,summary,details,status,received_at").eq("employee_id", id).is("deleted_at", null).order("received_at", { ascending: false }),
-                dated((supabase as any).from("inspection_reports").select(`${fields},receptionist_id`).eq("receptionist_id", id)).order("created_at", { ascending: false }).limit(1000),
-                dated((supabase as any).from("inspection_reports").select(`${fields},technician_id`).eq("technician_id", id)).order("created_at", { ascending: false }).limit(1000),
-                // Orders where the technician is only written by name: same branch only, so a namesake elsewhere is not counted.
-                (q => empBranch ? q.eq("branch_id", empBranch) : q)(dated((supabase as any).from("inspection_reports").select(`${fields},technician_id`).or("order_type.is.null,order_type.neq.sale"))).order("created_at", { ascending: false }).limit(1000),
-                reportPicker,
+                (supabase as any).rpc("employee_work_orders", { p_employee: id }),
+                managesHere ? reportPicker : Promise.resolve({ data: [] }),
                 isAdmin ? supabase.from("inventory").select("id,name,branch_id").order("name").limit(1000) : Promise.resolve({ data: [] as { id: string; name: string }[] }),
             ]);
-            for (const r of [taskRows, complaintRows, receptionRows, techRows, techNameRows]) if (r.error) throw r.error;
+            for (const r of [taskRows, complaintRows, workRowsRes]) if (r.error) throw r.error;
+            const work = (workRowsRes.data || []) as WorkRow[];
             setEmployee(emp.data);
             setTargets(allTargets);
             setTasks((taskRows.data || []) as Task[]);
             setComplaints((complaintRows.data || []) as Complaint[]);
-            const assignedRows = [...(techRows.data || []), ...(techNameRows.data || []).filter((row: any) => isAssignedTechByName(row, emp.data?.name || ""))];
-            setReceived(receptionRows.data || []);
-            setAssigned([...new Map(assignedRows.map((row: any) => [row.id, row])).values()]);
+            setReceived(work.filter(r => r.as_receptionist));
+            setAssigned(work.filter(r => r.as_technician));
             setReports(reportRows.data || []);
             setStockItems((stockRows.data || []) as { id: string; name: string }[]);
         } catch (e) { showError("تعذر تحميل ملف الموظف", errorText(e)); }
         finally { setLoading(false); setRefreshing(false); }
-    }, [id, canSeePrices, isAdmin, range.from, range.to]);
+    }, [id, isAdmin, employeeRole]);
 
     useEffect(() => { if (!authLoading) fetchProfile(employee !== null); }, [authLoading, fetchProfile]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -148,7 +135,7 @@ export default function EmployeeProfilePage() {
     // ── Everything below follows the period filter ──
     const { from, to } = range;
     const workRows = useMemo(() => {
-        const merged = new Map<string, any>();
+        const merged = new Map<string, WorkRow & { staffRole: string }>();
         for (const r of received) merged.set(r.id, { ...r, staffRole: "استقبال" });
         for (const r of assigned) merged.set(r.id, { ...r, staffRole: merged.has(r.id) ? "استقبال وفني" : "فني" });
         return [...merged.values()].filter(r => inRange(localDay(r.created_at), from, to)).sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -158,33 +145,30 @@ export default function EmployeeProfilePage() {
     const tasksInPeriod = tasks.filter(t => !from || !to || inRange(t.due_date || localDay(t.created_at), from, to) || (t.status !== "مكتملة" && (t.due_date || "") < from));
     const complaintsInPeriod = complaints.filter(c => inRange(localDay(c.received_at), from, to));
     const targetsInPeriod = targets.filter(t => !from || !to || (t.period_end >= from && t.period_start <= to));
-    const ratingValues = assigned.filter(r => inRange(localDay(r.created_at), from, to)).map(row => {
-        const payload = Array.isArray(row.selected_services) ? row.selected_services[0] : row.selected_services;
-        const perTech = Array.isArray(payload?.technicians) ? payload.technicians.find((tech: any) => tech?.name?.trim() === employee?.name?.trim())?.rating : null;
-        return Number(perTech ?? row.technician_rating ?? 0);
-    }).filter(value => value > 0);
+    const ratingValues = assigned.filter(r => inRange(localDay(r.created_at), from, to)).map(row => Number(row.rating || 0)).filter(value => value > 0);
     const averageRating = ratingValues.length ? (ratingValues.reduce((sum, value) => sum + value, 0) / ratingValues.length).toFixed(1) : "—";
 
     const activeReceived = received.filter(row => row.order_type !== "sale");
+    const monthly = useMemo(() => {
+        const months = new Map<string, { received: number; sales: number; completed: number; amount: number }>();
+        const bucket = (iso?: string | null) => { const key = localDay(iso).slice(0, 7); if (!key) return null; if (!months.has(key)) months.set(key, { received: 0, sales: 0, completed: 0, amount: 0 }); return months.get(key)!; };
+        for (const r of received) { const m = bucket(r.created_at); if (!m) continue; if (r.order_type === "sale") m.sales++; else m.received++; m.amount += Number(r.total_price || 0); }
+        for (const r of assigned) if (r.status === "تم الانتهاء") { const m = bucket(r.completed_at || r.created_at); if (m) m.completed++; }
+        return [...months.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+    }, [received, assigned]);
     const progressOf = (target: TargetRow) => {
         const within = (iso?: string | null) => { const d = localDay(iso); return d >= target.period_start && d <= target.period_end; };
         const rows = activeReceived.filter(row => within(row.created_at));
         const count = target.metric_key === "completed_orders"
             ? assigned.filter(row => row.status === "تم الانتهاء" && within(row.completed_at)).length
             : target.metric_key === "product_units"
-                ? received.filter(row => row.order_type === "sale" && within(row.created_at)).reduce((sum, row) => {
-                    const payload = Array.isArray(row.selected_services) ? row.selected_services[0] : row.selected_services;
-                    return sum + (Array.isArray(payload?.products) ? payload.products.reduce((n: number, p: any) => n + ((!target.inventory_id || p?.inventory_id === target.inventory_id) ? Number(p?.qty || 0) : 0), 0) : 0);
-                }, 0)
+                ? received.filter(row => row.order_type === "sale" && within(row.created_at)).reduce((sum, row) =>
+                    sum + (row.products || []).reduce((n, p) => n + ((!target.inventory_id || p?.inventory_id === target.inventory_id) ? Number(p?.qty || 0) : 0), 0), 0)
                 : target.metric_key === "service_cars"
                     ? rows.filter(row => {
-                        const payload = Array.isArray(row.selected_services) ? row.selected_services[0] : row.selected_services;
                         const filter = String(target.service_filter || "").trim().toLocaleLowerCase();
-                        const selectedServices = Object.entries(payload?.services || {}).filter(([, service]: [string, any]) => service?.status === "يحتاج تغيير").map(([key]) => SERVICE_LABELS[key] || key);
-                        selectedServices.push(...Object.keys(payload?.freeServices || {}).filter(key => payload.freeServices[key]).map(key => SERVICE_LABELS[key] || key));
-                        selectedServices.push(...(Array.isArray(payload?.customServices) ? payload.customServices.map((service: any) => String(service?.label || service?.name || "")) : []));
-                        const serviceNames = selectedServices.join(" ").toLocaleLowerCase();
-                        return filter ? serviceNames.includes(filter) : selectedServices.length > 0;
+                        const names = serviceNames(row);
+                        return filter ? names.join(" ").toLocaleLowerCase().includes(filter) : names.length > 0;
                     }).length
                     : rows.length;
         return { count, percent: target.target_value ? Math.min(100, Math.round(count / Number(target.target_value) * 100)) : 0 };
@@ -280,7 +264,7 @@ export default function EmployeeProfilePage() {
     if (authLoading || loading) return <div className="min-h-screen flex items-center justify-center" dir="rtl"><Loader2 className="animate-spin" /></div>;
     if (!canView || !employee) return <div className="min-h-screen flex items-center justify-center" dir="rtl"><div className="glass-card p-8 rounded-2xl text-center">غير مصرح أو أن الحساب غير موجود.</div></div>;
 
-    const roleLabel = employee.role === "Receptionist" ? "موظف استقبال" : employee.role === "Supervisor" ? "فني / مشرف" : employee.role === "Admin" ? "مدير" : employee.role === "Owner" ? "المالك" : employee.role;
+    const roleLabel = employee.role === "Receptionist" ? "موظف استقبال" : employee.role === "Technician" ? "فني" : employee.role === "Supervisor" ? "مشرف" : employee.role === "Admin" ? "مدير" : employee.role === "Owner" ? "المالك" : employee.role;
     const branchName = one<any>(employee.branches)?.name || "الفرع غير محدد";
     const periodLabel = preset === "all" ? "كل الفترات" : from && to ? (from === to ? from : `${from} إلى ${to}`) : "—";
 
@@ -373,17 +357,28 @@ export default function EmployeeProfilePage() {
             <div className="p-5 border-b border-border"><h2 className="font-bold text-lg flex items-center gap-2"><Wrench className="text-blue-400" />السيارات المستلمة والأعمال المنجزة</h2><p className="text-xs text-muted-foreground mt-1">يظهر الإسناد برقم الحساب أو باسم الفني المسجل في بطاقة العمل. اضغط رقم الأمر لفتحه أو اسم العميل لفتح ملفه.</p></div>
             <div className="overflow-auto"><table className="w-full min-w-[900px] text-sm text-right">
                 <thead className="bg-muted/40"><tr><th className="p-3">رقم الأمر</th><th className="p-3">الدور</th><th className="p-3">العميل والسيارة</th><th className="p-3">الخدمات</th><th className="p-3">الفرع</th><th className="p-3">الحالة</th><th className="p-3">التاريخ</th>{canSeePrices && <th className="p-3">القيمة</th>}</tr></thead>
-                <tbody>{workRows.map(row => { const v = one<any>(row.vehicles); const client = one<any>(v?.clients); return <tr key={row.id} className="border-t border-border">
-                    <td className="p-3"><Link href={`/work-orders/${row.id}`} className="text-cyan-400 font-bold">#{row.report_number}</Link></td>
+                <tbody>{workRows.map(row => <tr key={row.id} className="border-t border-border">
+                    <td className="p-3">{isOwn && employeeRole === "Technician" ? <b>#{row.report_number}</b> : <Link href={`/work-orders/${row.id}`} className="text-cyan-400 font-bold">#{row.report_number}</Link>}</td>
                     <td className="p-3">{row.order_type === "sale" ? "بيع" : row.staffRole}</td>
-                    <td className="p-3">{v?.client_id ? <Link href={`/customers/${v.client_id}`} className="text-cyan-400">{client?.name || "ملف العميل"}</Link> : (client?.name || "—")}<div className="text-xs text-muted-foreground">{[v?.make, v?.model, v?.plate_number].filter(Boolean).join(" • ")}</div></td>
+                    <td className="p-3">{row.client_id ? <Link href={`/customers/${row.client_id}`} className="text-cyan-400">{row.client_name || "ملف العميل"}</Link> : (row.client_name || "—")}<div className="text-xs text-muted-foreground">{[row.make, row.model, row.plate_number].filter(Boolean).join(" • ")}</div></td>
                     <td className="p-3 max-w-72">{servicesOf(row)}</td>
-                    <td className="p-3">{one<any>(row.branches)?.name || "—"}</td>
+                    <td className="p-3">{row.branch_name || "—"}</td>
                     <td className="p-3">{row.status}</td>
                     <td className="p-3 whitespace-nowrap">{localDay(row.created_at)}</td>
                     {canSeePrices && <td className="p-3 whitespace-nowrap">{Number(row.total_price || 0).toLocaleString("en-US")} د.ع</td>}
-                </tr>; })}</tbody>
+                </tr>)}</tbody>
             </table>{workRows.length === 0 && <Empty>لا توجد أوامر عمل في هذه الفترة.</Empty>}</div>
+        </section>
+
+        <section className="glass-card rounded-2xl overflow-hidden">
+            <div className="p-5 border-b border-border"><h2 className="font-bold text-lg flex items-center gap-2"><CalendarRange className="text-violet-400" />السجل الشهري منذ بداية النظام</h2></div>
+            <div className="overflow-auto"><table className="w-full min-w-[560px] text-sm text-right">
+                <thead className="bg-muted/40"><tr><th className="p-3">الشهر</th><th className="p-3">سيارات استلمها</th><th className="p-3">مبيعات مباشرة</th><th className="p-3">أوامر فنية مكتملة</th>{canSeePrices && <th className="p-3">قيمة ما استلمه</th>}</tr></thead>
+                <tbody>{monthly.map(([month, m]) => <tr key={month} className="border-t border-border">
+                    <td className="p-3 font-bold whitespace-nowrap">{month}</td><td className="p-3">{m.received}</td><td className="p-3">{m.sales}</td><td className="p-3">{m.completed}</td>
+                    {canSeePrices && <td className="p-3 whitespace-nowrap">{m.amount.toLocaleString("en-US")} د.ع</td>}
+                </tr>)}</tbody>
+            </table>{monthly.length === 0 && <Empty>لا يوجد عمل مسجل لهذا الموظف بعد.</Empty>}</div>
         </section>
     </div>
 
