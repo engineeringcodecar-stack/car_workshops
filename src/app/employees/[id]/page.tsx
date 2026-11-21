@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowRight, CalendarRange, ClipboardList, Loader2, MessageSquareWarning, Pencil, Target, Trash2, UserRound, Wrench } from "lucide-react";
+import { ArrowRight, CalendarRange, ClipboardList, History, Loader2, MessageSquareWarning, Pencil, RotateCcw, Target, Trash2, UserRound, Wrench } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/AuthProvider";
 import { showConfirm, showError, showSuccess } from "@/lib/alerts";
@@ -11,6 +11,7 @@ import { showConfirm, showError, showSuccess } from "@/lib/alerts";
 type TargetRow = { id: string; metric_key: string; title: string; target_value: number; unit: string; period_start: string; period_end: string; inventory_id?: string | null; service_filter?: string | null };
 type Task = { id: string; title: string; details: string | null; due_date: string | null; status: string; created_at: string };
 type Complaint = { id: string; report_id: string | null; client_id?: string | null; summary: string; details: string | null; status: string; received_at: string };
+type StaffTable = "employee_targets" | "employee_tasks" | "service_complaints";
 type Preset = "today" | "week" | "month" | "all" | "custom";
 
 // Dates are compared as the browser's local calendar day (the workshops are all in Iraq).
@@ -83,6 +84,8 @@ export default function EmployeeProfilePage() {
     const [taskForm, setTaskForm] = useState(emptyTask());
     const [complaintForm, setComplaintForm] = useState(emptyComplaint());
     const [saving, setSaving] = useState(false);
+    type DeletedRow = { table: StaffTable; id: string; kind: string; name: string; deleted_at: string };
+    const [deletedLog, setDeletedLog] = useState<DeletedRow[] | null>(null);
 
     const fetchProfile = useCallback(async (quiet = false) => {
         if (!id) return;
@@ -113,7 +116,8 @@ export default function EmployeeProfilePage() {
                 (supabase as any).from("service_complaints").select("id,report_id,client_id,summary,details,status,received_at").eq("employee_id", id).is("deleted_at", null).order("received_at", { ascending: false }),
                 dated((supabase as any).from("inspection_reports").select(`${fields},receptionist_id`).eq("receptionist_id", id)).order("created_at", { ascending: false }).limit(1000),
                 dated((supabase as any).from("inspection_reports").select(`${fields},technician_id`).eq("technician_id", id)).order("created_at", { ascending: false }).limit(1000),
-                dated((supabase as any).from("inspection_reports").select(`${fields},technician_id`).or("order_type.is.null,order_type.neq.sale")).order("created_at", { ascending: false }).limit(1000),
+                // Orders where the technician is only written by name: same branch only, so a namesake elsewhere is not counted.
+                (q => empBranch ? q.eq("branch_id", empBranch) : q)(dated((supabase as any).from("inspection_reports").select(`${fields},technician_id`).or("order_type.is.null,order_type.neq.sale"))).order("created_at", { ascending: false }).limit(1000),
                 reportPicker,
                 isAdmin ? supabase.from("inventory").select("id,name,branch_id").order("name").limit(1000) : Promise.resolve({ data: [] as { id: string; name: string }[] }),
             ]);
@@ -144,7 +148,8 @@ export default function EmployeeProfilePage() {
     const isBranchSupervisor = employeeRole === "Supervisor" && sameBranch;
     const canView = isAdmin || isOwn || isBranchSupervisor;
     const canManage = isAdmin;
-    const canManageComplaints = isAdmin || isBranchSupervisor;
+    // A Supervisor handles complaints of their branch, but not the ones filed against themselves.
+    const canManageComplaints = isAdmin || (isBranchSupervisor && !isOwn);
 
     // ── Everything below follows the period filter ──
     const { from, to } = range;
@@ -243,12 +248,26 @@ export default function EmployeeProfilePage() {
     };
 
     // ── Delete: kept in the table with deleted_at/deleted_by, hidden everywhere ──
-    const softDelete = async (table: "employee_targets" | "employee_tasks" | "service_complaints", rowId: string, kind: string, name: string) => {
+    const softDelete = async (table: StaffTable, rowId: string, kind: string, name: string) => {
         const ok = await showConfirm(`حذف ${kind}`, `سيتم حذف ${kind} «${name}» من ملف ${employee?.name || "الموظف"}. يبقى محفوظاً في سجل الحذف ويمكن للإدارة استرجاعه.`, "حذف", true);
         if (!ok) return;
         const { error } = await (supabase as any).from(table).update({ deleted_at: new Date().toISOString(), deleted_by: employeeId }).eq("id", rowId);
         if (error) return showError("تعذر الحذف", errorText(error));
         showSuccess("تم الحذف", `تم حذف ${kind}.`);
+        await fetchProfile(true);
+    };
+
+    const openDeletedLog = async () => {
+        const pick = (table: StaffTable, kind: string, nameField: string) => (supabase as any).from(table).select(`id,${nameField},deleted_at`).eq("employee_id", id).not("deleted_at", "is", null).order("deleted_at", { ascending: false }).limit(100)
+            .then(({ data }: { data: any[] | null }) => (data || []).map(r => ({ table, id: r.id, kind, name: r[nameField], deleted_at: r.deleted_at })));
+        const lists = await Promise.all([pick("employee_targets", "هدف", "title"), pick("employee_tasks", "مهمة", "title"), pick("service_complaints", "شكوى", "summary")]);
+        setDeletedLog(lists.flat().sort((a, b) => b.deleted_at.localeCompare(a.deleted_at)));
+    };
+    const restore = async (row: DeletedRow) => {
+        const { error } = await (supabase as any).from(row.table).update({ deleted_at: null, deleted_by: null }).eq("id", row.id);
+        if (error) return showError("تعذر الاسترجاع", errorText(error));
+        showSuccess("تم الاسترجاع", `رجعت ${row.kind} «${row.name}» إلى الملف.`);
+        setDeletedLog(log => (log || []).filter(r => r.id !== row.id));
         await fetchProfile(true);
     };
 
@@ -283,6 +302,7 @@ export default function EmployeeProfilePage() {
                 {canManage && <button onClick={() => openTarget()} className="px-4 py-2 rounded-xl bg-violet-600 text-white font-bold">إضافة هدف</button>}
                 {canManage && <button onClick={() => openTask()} className="px-4 py-2 rounded-xl bg-cyan-600 text-white font-bold">إضافة مهمة</button>}
                 {canManageComplaints && <button onClick={() => openComplaint()} className="px-4 py-2 rounded-xl bg-rose-600 text-white font-bold">تسجيل شكوى</button>}
+                {canManage && <button onClick={openDeletedLog} className="px-4 py-2 rounded-xl border border-border text-muted-foreground hover:text-foreground font-bold flex items-center gap-2"><History size={16} />المحذوفات</button>}
             </div>}
         </header>
 
@@ -394,6 +414,15 @@ export default function EmployeeProfilePage() {
         <label className="block text-sm">التفاصيل<textarea className="input-field w-full mt-1" value={complaintForm.details} onChange={e => setComplaintForm({ ...complaintForm, details: e.target.value })} /></label>
         <SaveButton saving={saving} className="bg-rose-600">{complaintModal.editingId ? "حفظ التعديل" : "حفظ وربط الشكوى"}</SaveButton>
     </form></Modal>}
+    {deletedLog && canManage && <Modal title="المحذوفات من الملف" close={() => setDeletedLog(null)}>
+        <div className="max-h-[60vh] overflow-auto divide-y divide-border">
+            {deletedLog.map(row => <div key={row.id} className="py-3 flex items-center justify-between gap-3">
+                <div><div className="text-xs text-muted-foreground">{row.kind} • حُذف {localDay(row.deleted_at)}</div><b className="text-sm">{row.name}</b></div>
+                <button onClick={() => restore(row)} className="flex items-center gap-1 text-xs font-bold text-cyan-400 whitespace-nowrap"><RotateCcw size={13} />استرجاع</button>
+            </div>)}
+            {deletedLog.length === 0 && <Empty>لا يوجد شيء محذوف.</Empty>}
+        </div>
+    </Modal>}
     </main>;
 }
 

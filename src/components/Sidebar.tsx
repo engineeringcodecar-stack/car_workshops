@@ -64,6 +64,17 @@ export function Sidebar() {
         }
     }, [employeeRole]);
 
+    // Open tasks badge on «مهامي», refreshed on every page change.
+    const [openTasks, setOpenTasks] = useState(0);
+    useEffect(() => {
+        if (!employeeId) return;
+        let cancelled = false;
+        (supabase as any).from('employee_tasks').select('id', { count: 'exact', head: true })
+            .eq('employee_id', employeeId).neq('status', 'مكتملة').is('deleted_at', null)
+            .then(({ count, error }: { count: number | null; error: unknown }) => { if (!cancelled) setOpenTasks(error ? 0 : count || 0); });
+        return () => { cancelled = true; };
+    }, [employeeId, pathname]);
+
     // TODO: Update translations in dictionaries.ts, for now using hardcoded fallback or safe common keys
     // categorized navItems mimicking an ERP system like Odoo
     type NavCategory = {
@@ -280,6 +291,7 @@ export function Sidebar() {
                                             <span className={`font-medium text-sm ${isActive ? "text-foreground" : "text-muted-foreground"}`}>
                                                 {item.label}
                                             </span>
+                                            {item.href === "/my/tasks" && openTasks > 0 && <span className="mr-auto min-w-5 h-5 px-1.5 rounded-full bg-rose-600 text-white text-[11px] font-bold flex items-center justify-center">{openTasks > 9 ? "9+" : openTasks}</span>}
                                         </Link>
                                     );
                                 })}
@@ -365,7 +377,7 @@ export function Sidebar() {
                                             key={item.href}
                                             href={item.href}
                                             title={isCollapsed ? item.label : undefined}
-                                            className={`sidebar-item ${isActive ? "active" : ""} ${isCollapsed ? "justify-center px-2" : ""}`}
+                                            className={`sidebar-item relative ${isActive ? "active" : ""} ${isCollapsed ? "justify-center px-2" : ""}`}
                                         >
                                             <span className={isActive ? "text-rose-400" : "text-muted-foreground"}>
                                                 {item.icon}
@@ -375,6 +387,8 @@ export function Sidebar() {
                                                     {item.label}
                                                 </span>
                                             )}
+                                            {isCollapsed && item.href === "/my/tasks" && openTasks > 0 && <span className="absolute top-1 left-1 w-2.5 h-2.5 rounded-full bg-rose-500" />}
+                                            {!isCollapsed && item.href === "/my/tasks" && openTasks > 0 && <span className="mr-auto min-w-5 h-5 px-1.5 rounded-full bg-rose-600 text-white text-[11px] font-bold flex items-center justify-center">{openTasks > 9 ? "9+" : openTasks}</span>}
                                         </Link>
                                     );
                                 })}
