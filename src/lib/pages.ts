@@ -16,8 +16,6 @@ export const APP_PAGES: AppPage[] = [
     { key: 'reports', href: '/reports', label: 'الفواتير والتقارير (PDF)' },
     { key: 'technician-report', href: '/technician-report', label: 'تقرير الفنيين اليومي' },
     { key: 'financial-reports', href: '/financial-reports', label: 'السجلات والدفاتر (Excel)' },
-    { key: 'sales-reports', href: '/sales-reports', label: 'تقارير المبيعات وتحليل الأداء' },
-    { key: 'inventory', href: '/inventory', label: 'المخزن الموحد' },
     { key: 'hr', href: '/hr/employees', label: 'الموارد البشرية — الموظفون' },
     { key: 'settings', href: '/settings', label: 'الإعدادات وإدارة الموظفين' },
 ];

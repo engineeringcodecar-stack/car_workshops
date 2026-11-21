@@ -24,7 +24,6 @@ import {
     ClipboardCheck,
     UserCircle,
     Landmark,
-    TrendingUp,
 } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import NotificationBell from "./NotificationBell";
@@ -103,7 +102,6 @@ export function Sidebar() {
                 { href: "/reports", label: "الفواتير والتقارير (PDF)", icon: <FileText size={20} />, roles: ["Owner", "Admin", "Supervisor"] },
                 { href: "/technician-report", label: "تقرير الفنيين اليومي", icon: <Wrench size={20} />, roles: ["Owner", "Admin", "Supervisor"] },
                 { href: "/financial-reports", label: "السجلات والدفاتر (Excel)", icon: <FileSpreadsheet size={20} />, roles: ["Owner", "Admin"] },
-                { href: "/sales-reports", label: "تقارير المبيعات والتحليل", icon: <TrendingUp size={20} />, roles: ["Owner", "Admin", "Supervisor"] },
             ]
         },
         {
@@ -165,7 +163,6 @@ export function Sidebar() {
             // تقرير الفنيين: مخفي عن الموظفين افتراضياً — يظهر فقط لمن يُمنح التبويب صراحةً.
             if (item.href === '/technician-report') return false;
             if (item.href === '/financial-reports') return false;
-            if (item.href === '/sales-reports') return employeeRole === 'Supervisor';
             if (item.href === '/inventory') return false;
             if (item.href === '/hr/employees') return false;
             // العقود: money on credit — only for staff explicitly granted the tab.
