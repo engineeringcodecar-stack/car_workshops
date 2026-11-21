@@ -23,7 +23,7 @@ const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${Str
 export default function SalesPlanPage() {
     const { employeeRole, employeeBranchId, loading: authLoading } = useAuth();
     const isAdmin = employeeRole === "Owner" || employeeRole === "Admin";
-    const canView = isAdmin || employeeRole === "Supervisor";
+    const canView = isAdmin || employeeRole === "Supervisor" || employeeRole === "BranchManager";
     const [branches, setBranches] = useState<{ id: string; name: string }[]>([]);
     const [branchId, setBranchId] = useState("");
     const [month, setMonth] = useState(thisMonth());
@@ -37,6 +37,8 @@ export default function SalesPlanPage() {
     const [amountDraft, setAmountDraft] = useState("");
     const [form, setForm] = useState({ kind: "service" as "service" | "product", service_key: "engineOil", inventory_id: "", target_qty: "", unit: "سيارة" });
     const [stockSearch, setStockSearch] = useState("");
+    // Owner/Admin edit every branch's plan; a branch manager edits their own branch's plan.
+    const canEdit = isAdmin || (employeeRole === "BranchManager" && !!employeeBranchId && branchId === employeeBranchId);
 
     useEffect(() => {
         if (authLoading || !canView) return;
@@ -55,7 +57,7 @@ export default function SalesPlanPage() {
             const [planRow, staffRows, stockRows] = await Promise.all([
                 (supabase as any).from("sales_plans").select("id,branch_id,month,target_amount,notes").eq("branch_id", branchId).eq("month", monthDate).maybeSingle(),
                 (supabase as any).from("employees").select("id,name,role,permission_reception,allowed_pages").eq("branch_id", branchId).in("role", ["Receptionist", "Supervisor"]).order("name"),
-                isAdmin ? (supabase as any).from("inventory").select("id,name,base_unit").eq("branch_id", branchId).order("name").limit(2000) : Promise.resolve({ data: [] }),
+                canEdit ? (supabase as any).from("inventory").select("id,name,base_unit").eq("branch_id", branchId).order("name").limit(2000) : Promise.resolve({ data: [] }),
             ]);
             if (planRow.error) throw planRow.error;
             const p = planRow.data as Plan | null;
@@ -75,7 +77,7 @@ export default function SalesPlanPage() {
             } else { setItems([]); setProgress([]); }
         } catch (e) { showError("تعذر تحميل الخطة", errorText(e)); }
         finally { setLoading(false); }
-    }, [branchId, month, isAdmin]);
+    }, [branchId, month, canEdit]);
     useEffect(() => { load(); }, [load]);
 
     const soldOf = (itemId: string | null, employeeId: string | null) => Number(progress.find(p => p.item_id === itemId && p.employee_id === employeeId)?.sold || 0);
@@ -141,13 +143,13 @@ export default function SalesPlanPage() {
         </header>
 
         {loading ? <div className="flex justify-center py-16"><Loader2 className="animate-spin" /></div> : <>
-            {isAdmin && <section className="glass-card p-5 rounded-2xl flex flex-wrap items-end gap-3">
+            {canEdit && <section className="glass-card p-5 rounded-2xl flex flex-wrap items-end gap-3">
                 <label className="text-sm">هدف المبيعات للشهر (د.ع) — اختياري<input inputMode="numeric" className="input-field w-full mt-1 min-w-56" value={amountDraft} onChange={e => setAmountDraft(e.target.value)} placeholder="مثال: 25000000" /></label>
                 <button onClick={savePlan} className="px-5 py-2.5 rounded-xl bg-violet-600 text-white font-bold">{plan ? "حفظ الهدف" : "إنشاء خطة الشهر"}</button>
                 {!plan && <span className="text-xs text-muted-foreground">لا توجد خطة لهذا الفرع في هذا الشهر.</span>}
             </section>}
 
-            {plan && isAdmin && <form onSubmit={addItem} className="glass-card p-5 rounded-2xl grid md:grid-cols-[auto_1fr_8rem_8rem_auto] gap-3 items-end">
+            {plan && canEdit && <form onSubmit={addItem} className="glass-card p-5 rounded-2xl grid md:grid-cols-[auto_1fr_8rem_8rem_auto] gap-3 items-end">
                 <label className="text-sm">النوع<select className="input-field w-full mt-1" value={form.kind} onChange={e => { const kind = e.target.value as "service" | "product"; setForm(f => ({ ...f, kind, unit: kind === "service" ? "سيارة" : "" })); }}><option value="service">خدمة (عدد سيارات)</option><option value="product">مادة من المخزن</option></select></label>
                 {form.kind === "service"
                     ? <label className="text-sm">الخدمة<select className="input-field w-full mt-1" value={form.service_key} onChange={e => setForm(f => ({ ...f, service_key: e.target.value }))}>{Object.entries(SERVICES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
@@ -168,7 +170,7 @@ export default function SalesPlanPage() {
                         <td className="p-3 whitespace-nowrap">{fmt(sold)}</td>
                         <td className="p-3"><div className="h-2 bg-muted rounded-full overflow-hidden"><div className={`h-full ${behind ? "bg-rose-500" : "bg-emerald-500"}`} style={{ width: `${Math.min(100, pct)}%` }} /></div><div className={`text-xs mt-1 ${behind ? "text-rose-400" : "text-emerald-400"}`}>{pct}%{behind ? " • متأخر عن الخطة" : ""}</div></td>
                         {staff.map(s => <td key={s.id} className="p-3 whitespace-nowrap">{fmt(soldOf(r.id, s.id))} / {fmt(Math.ceil(r.target * share))}</td>)}
-                        {isAdmin && <td className="p-3">{r.removable ? <button onClick={() => removeItem(r.removable!)} className="text-muted-foreground hover:text-rose-400"><Trash2 size={15} /></button> : null}</td>}
+                        {canEdit && <td className="p-3">{r.removable ? <button onClick={() => removeItem(r.removable!)} className="text-muted-foreground hover:text-rose-400"><Trash2 size={15} /></button> : null}</td>}
                     </tr>; })}</tbody>
                 </table>{rows.length === 0 && <div className="text-center text-sm text-muted-foreground py-8">أضف هدف المبيعات أو بنود الخطة.</div>}</div>
             </section>}

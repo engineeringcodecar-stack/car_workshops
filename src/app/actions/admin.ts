@@ -5,8 +5,10 @@ import { Database, UserRole } from "@/lib/types";
 import { requireAdmin, requireUserManager } from "@/lib/supabase-server";
 import { sanitizePageKeys } from "@/lib/pages";
 
-// Roles a non-admin user-manager may neither grant nor touch.
-const PRIVILEGED_ROLES: UserRole[] = ["Owner", "Admin"];
+// Roles a non-admin user-manager (branch manager, or a holder of the «الموظفون» permission)
+// may neither grant nor touch — except their own account, which keeps its role.
+const PRIVILEGED_ROLES: UserRole[] = ["Owner", "Admin", "BranchManager"];
+const OUTSIDE_BRANCH = "هذا الموظف ليس من فرعك. تقدر تدير حسابات فرعك فقط.";
 
 // listUsers() returns one page (50 by default) — walk every page.
 async function listAllAuthUsers(supabaseAdmin: SupabaseClient<Database>) {
@@ -52,12 +54,12 @@ export async function createEmployeeAccount(formData: {
     // manage users before touching the service-role client (which bypasses RLS).
     const guard = await requireUserManager();
     if (!guard.ok) return { success: false, error: guard.error };
-    const { supabaseAdmin, isAdmin, role: callerRole } = guard;
+    const { supabaseAdmin, isAdmin, role: callerRole, scopeBranch } = guard;
 
-    // A user-manager who isn't Owner/Admin cannot mint an Owner/Admin account,
+    // A user-manager who isn't Owner/Admin cannot mint an Owner/Admin/branch-manager account,
     // which would otherwise turn the permission flag into a self-promotion path.
     if (!isAdmin && PRIVILEGED_ROLES.includes(formData.role)) {
-        return { success: false, error: "لا يمكنك إنشاء حساب بصلاحية مالك أو مدير نظام." };
+        return { success: false, error: "لا يمكنك إنشاء حساب بصلاحية مالك أو مدير نظام أو مدير فرع." };
     }
     // Only the Owner may create another Owner.
     if (formData.role === "Owner" && callerRole !== "Owner") {
@@ -95,7 +97,8 @@ export async function createEmployeeAccount(formData: {
                 username: cleanUsername,
                 role: formData.role,
                 phone: formData.phone,
-                branch_id: cleanBranchId(formData.branch_id),
+                // A branch-scoped manager always creates accounts in their own branch.
+                branch_id: scopeBranch ?? cleanBranchId(formData.branch_id),
                 permission_dashboard: formData.permission_dashboard ?? true,
                 permission_reception: formData.permission_reception ?? true,
                 permission_work_orders: formData.permission_work_orders ?? true,
@@ -143,14 +146,20 @@ export async function updateEmployeeAccount(
 ) {
     const guard = await requireUserManager();
     if (!guard.ok) return { success: false, error: guard.error };
-    const { supabaseAdmin, userId, isAdmin, role: callerRole } = guard;
+    const { supabaseAdmin, userId, isAdmin, role: callerRole, scopeBranch } = guard;
 
     const { data: target, error: targetError } = await supabaseAdmin
         .from("employees")
-        .select("role")
+        .select("role, branch_id")
         .eq("auth_id", authId)
         .maybeSingle();
     if (targetError) return { success: false, error: targetError.message };
+
+    // A non-admin editing their own account keeps their role, branch and tabs.
+    const keepAccess = !isAdmin && authId === userId;
+    if (scopeBranch && !keepAccess && target?.branch_id !== scopeBranch) {
+        return { success: false, error: OUTSIDE_BRANCH };
+    }
 
     // Only the Owner may edit an Owner account (password reset included) or grant the role.
     if (callerRole !== "Owner") {
@@ -162,19 +171,16 @@ export async function updateEmployeeAccount(
         }
     }
 
-    if (!isAdmin) {
-        // Non-admin managers may not edit an Owner/Admin account (that would let
+    if (!isAdmin && !keepAccess) {
+        // Non-admin managers may not edit an Owner/Admin/branch-manager account (that would let
         // them reset the owner's password) nor promote anyone into those roles.
         if (target && PRIVILEGED_ROLES.includes(target.role)) {
-            return { success: false, error: "لا يمكنك تعديل حساب المالك أو مدير النظام." };
+            return { success: false, error: "لا يمكنك تعديل حساب المالك أو مدير النظام أو مدير فرع." };
         }
         if (PRIVILEGED_ROLES.includes(formData.role)) {
-            return { success: false, error: "لا يمكنك منح صلاحية مالك أو مدير نظام." };
+            return { success: false, error: "لا يمكنك منح صلاحية مالك أو مدير نظام أو مدير فرع." };
         }
     }
-
-    // A non-admin editing their own account keeps their role, branch and tabs.
-    const keepAccess = !isAdmin && authId === userId;
 
     try {
         const cleanUsername = formData.username.trim().toLowerCase();
@@ -208,7 +214,7 @@ export async function updateEmployeeAccount(
                 username: cleanUsername,
                 role: formData.role,
                 phone: formData.phone,
-                branch_id: cleanBranchId(formData.branch_id),
+                branch_id: scopeBranch ?? cleanBranchId(formData.branch_id),
                 permission_dashboard: formData.permission_dashboard ?? true,
                 permission_reception: formData.permission_reception ?? true,
                 permission_work_orders: formData.permission_work_orders ?? true,
@@ -232,7 +238,7 @@ export async function updateEmployeeAccount(
 export async function deleteEmployeeAccount(authId: string) {
     const guard = await requireUserManager();
     if (!guard.ok) return { success: false, error: guard.error };
-    const { supabaseAdmin, userId, isAdmin, role: callerRole } = guard;
+    const { supabaseAdmin, userId, isAdmin, role: callerRole, scopeBranch } = guard;
 
     // Guard against an admin deleting their own account and locking themselves out.
     if (authId === userId) {
@@ -241,16 +247,19 @@ export async function deleteEmployeeAccount(authId: string) {
 
     const { data: target, error: targetError } = await supabaseAdmin
         .from("employees")
-        .select("role")
+        .select("role, branch_id")
         .eq("auth_id", authId)
         .maybeSingle();
     if (targetError) return { success: false, error: targetError.message };
 
+    if (scopeBranch && target?.branch_id !== scopeBranch) {
+        return { success: false, error: OUTSIDE_BRANCH };
+    }
     if (target?.role === "Owner" && callerRole !== "Owner") {
         return { success: false, error: "حذف حساب المالك مسموح للمالك فقط." };
     }
     if (!isAdmin && target && PRIVILEGED_ROLES.includes(target.role)) {
-        return { success: false, error: "لا يمكنك حذف حساب المالك أو مدير النظام." };
+        return { success: false, error: "لا يمكنك حذف حساب المالك أو مدير النظام أو مدير فرع." };
     }
 
     try {
@@ -310,13 +319,15 @@ export async function getAuthEmails() {
 export async function listAppUsers() {
     const guard = await requireUserManager();
     if (!guard.ok) return { success: false, error: guard.error, users: [] };
-    const { supabaseAdmin } = guard;
+    const { supabaseAdmin, scopeBranch } = guard;
 
     try {
-        const { data: employees, error: empError } = await supabaseAdmin
+        let query = supabaseAdmin
             .from("employees")
             .select("id, auth_id, name, role")
             .order("name", { ascending: true });
+        if (scopeBranch) query = query.eq("branch_id", scopeBranch);
+        const { data: employees, error: empError } = await query;
 
         if (empError) return { success: false, error: empError.message, users: [] };
 

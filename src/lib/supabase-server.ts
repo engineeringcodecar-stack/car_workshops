@@ -68,6 +68,11 @@ export type UserManagerGuardResult =
            * Owner accounts and the Owner role stay Owner-only: check `role` for those.
            */
           isAdmin: boolean;
+          /**
+           * Branch this manager is limited to: a BranchManager, or any non-admin manager with a
+           * branch on record, manages only the accounts of that branch. null = every branch.
+           */
+          scopeBranch: string | null;
       }
     | { ok: false; error: string };
 
@@ -77,6 +82,7 @@ type CallerResult =
           supabaseAdmin: SupabaseClient<Database>;
           userId: string;
           role: UserRole;
+          branchId: string | null;
           canManageUsers: boolean;
       }
     | { ok: false; error: string };
@@ -111,7 +117,7 @@ async function resolveCaller(): Promise<CallerResult> {
 
     const { data: employee, error: roleError } = await supabaseAdmin
         .from("employees")
-        .select("role, permission_employees")
+        .select("role, branch_id, permission_employees")
         .eq("auth_id", user.id)
         .limit(1)
         .maybeSingle();
@@ -128,7 +134,8 @@ async function resolveCaller(): Promise<CallerResult> {
         supabaseAdmin,
         userId: user.id,
         role: employee.role,
-        canManageUsers: ADMIN_ROLES.includes(employee.role) || employee.permission_employees === true,
+        branchId: employee.branch_id ?? null,
+        canManageUsers: ADMIN_ROLES.includes(employee.role) || employee.role === "BranchManager" || employee.permission_employees === true,
     };
 }
 
@@ -167,11 +174,17 @@ export async function requireUserManager(): Promise<UserManagerGuardResult> {
         return { ok: false, error: "ليس لديك صلاحية إدارة المستخدمين. اطلب من المالك تفعيل صلاحية «الموظفون»." };
     }
 
+    const isAdmin = ADMIN_ROLES.includes(caller.role);
+    if (!isAdmin && caller.role === "BranchManager" && !caller.branchId) {
+        return { ok: false, error: "حساب مدير الفرع غير مربوط بفرع. اطلب من المالك تحديد الفرع." };
+    }
+
     return {
         ok: true,
         supabaseAdmin: caller.supabaseAdmin,
         userId: caller.userId,
         role: caller.role,
-        isAdmin: ADMIN_ROLES.includes(caller.role),
+        isAdmin,
+        scopeBranch: isAdmin ? null : caller.branchId,
     };
 }

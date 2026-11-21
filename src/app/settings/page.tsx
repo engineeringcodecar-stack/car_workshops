@@ -12,10 +12,14 @@ import { APP_PAGES, legacyAllowedPages, DEFAULT_NEW_EMPLOYEE_PAGES } from "@/lib
 
 export default function SettingsPage() {
     const { t } = useLanguage();
-    const { employeeRole, loading: authLoading, permissionEmployees } = useAuth();
+    const { employeeRole, employeeId, employeeBranchId, loading: authLoading, permissionEmployees } = useAuth();
     // Owner/Admin. Staff who only carry the "الموظفون" permission flag can manage
     // accounts, but not admin-level ones — mirrors requireUserManager() on the server.
     const isAdmin = employeeRole === 'Owner' || employeeRole === 'Admin';
+    // A branch manager (or any non-admin account manager with a branch) manages only the
+    // accounts of their own branch — the server actions enforce the same.
+    const canManageUsers = isAdmin || employeeRole === 'BranchManager' || !!permissionEmployees;
+    const scopeBranch = !isAdmin && employeeBranchId ? employeeBranchId : null;
     
     // Auth & Employees State
     const [employees, setEmployees] = useState<any[]>([]);
@@ -71,7 +75,7 @@ export default function SettingsPage() {
             ]);
 
             if (!empErr && empData) {
-                setEmployees(empData);
+                setEmployees(scopeBranch ? empData.filter((e: any) => e.branch_id === scopeBranch) : empData);
             }
 
             if (!bErr && bData) setBranches(bData);
@@ -94,12 +98,12 @@ export default function SettingsPage() {
         // Wait for auth to settle, then either fetch or show the unauthorized
         // panel — an auth user with no employees row must not spin forever.
         if (authLoading) return;
-        if (isAdmin || permissionEmployees) {
+        if (canManageUsers) {
             fetchAllData();
         } else {
             setLoadingEnv(false);
         }
-    }, [authLoading, isAdmin, permissionEmployees]);
+    }, [authLoading, canManageUsers, scopeBranch]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleSaveGoogleSettings = async () => {
         setIsSavingGoogle(true);
@@ -204,6 +208,8 @@ export default function SettingsPage() {
     const canManage = (emp: any) => {
         if (emp.role === 'Owner') return employeeRole === 'Owner';
         if (emp.role === 'Admin') return isAdmin;
+        if (scopeBranch && emp.branch_id !== scopeBranch) return false;
+        if (emp.role === 'BranchManager') return isAdmin || emp.id === employeeId;
         return true;
     };
 
@@ -344,7 +350,7 @@ export default function SettingsPage() {
         return <div className="p-20 flex justify-center"><Loader2 className="animate-spin text-rose-500 w-10 h-10" /></div>;
     }
 
-    if (!isAdmin && !permissionEmployees) {
+    if (!canManageUsers) {
         return (
             <div className="p-8 flex items-center justify-center min-h-[50vh] animate-fade-in" dir="rtl">
                 <div className="glass-card p-8 rounded-2xl border-border text-center max-w-md w-full relative overflow-hidden">
@@ -514,10 +520,11 @@ export default function SettingsPage() {
                                             <span className={`px-3 py-1.5 rounded-full text-[11px] font-bold border inline-block min-w-[80px] ${
                                                 emp.role === 'Owner' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' :
                                                 emp.role === 'Admin' ? 'bg-rose-500/10 text-rose-500 border-rose-500/20' :
+                                                emp.role === 'BranchManager' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
                                                 emp.role === 'Supervisor' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
                                                 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
                                             }`}>
-                                                {emp.role === 'Owner' ? 'مالك النظام' : emp.role === 'Admin' ? 'مدير عام' : emp.role === 'Supervisor' ? 'مشرف فني' : emp.role === 'Technician' ? 'فني' : 'استقبال'}
+                                                {emp.role === 'Owner' ? 'مالك النظام' : emp.role === 'Admin' ? 'مدير عام' : emp.role === 'BranchManager' ? 'مدير فرع' : emp.role === 'Supervisor' ? 'مشرف شفت' : emp.role === 'Technician' ? 'فني' : 'استقبال'}
                                             </span>
                                         </td>
                                         <td className="py-4 px-4 text-muted-foreground font-mono" dir="ltr">{emp.phone || 'لا يوجد'}</td>
@@ -528,7 +535,7 @@ export default function SettingsPage() {
                                                     <button onClick={() => handleEditUserClick(emp)} className="text-blue-500 hover:bg-blue-500/10 p-1.5 rounded transition-colors text-xs font-bold border border-blue-500/20">تعديل</button>
                                                 )}
                                                 <a href={`/employees/${emp.id}`} className="text-cyan-400 hover:bg-cyan-500/10 p-1.5 rounded transition-colors text-xs font-bold border border-cyan-500/20">الملف</a>
-                                                {canManage(emp) && (
+                                                {canManage(emp) && emp.id !== employeeId && (
                                                     <button onClick={() => handleDeleteUser(emp.auth_id, emp.name, emp.role)} className="text-rose-500 hover:bg-rose-500/10 p-1.5 rounded transition-colors text-xs font-bold border border-rose-500/20">حذف</button>
                                                 )}
                                                 {!canManage(emp) && (
@@ -627,20 +634,21 @@ export default function SettingsPage() {
                                 <div className="space-y-2">
                                     <label htmlFor="emp-role" className="text-sm font-medium text-muted-foreground">المنصب الدقيق والصلاحية</label>
                                     <select id="emp-role" name="role" className="w-full bg-cyan-950/20 border border-cyan-900/50 font-bold rounded-xl p-3 text-cyan-400 focus:border-cyan-500" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
-                                        <option value="Receptionist">موظف استقبال</option>
-                                        <option value="Supervisor">مشرف فني (ورشة)</option>
+                                        <option value="Receptionist">موظف استقبال (يبيع)</option>
+                                        <option value="Supervisor">مشرف شفت (ينظم ساحة الورشة)</option>
                                         <option value="Technician">فني (يشوف حسابه ومهامه فقط)</option>
                                         {/* Only a real admin may hand out admin-level roles — the server
                                             enforces the same rule, so hide what would just fail. */}
+                                        {(isAdmin || formData.role === 'BranchManager') && <option value="BranchManager" disabled={!isAdmin}>مدير فرع (يدير فرعه فقط، ويضيف حساباته)</option>}
                                         {isAdmin && <option value="Admin">مدير عام (أقصى صلاحية)</option>}
                                         {employeeRole === 'Owner' && <option value="Owner">مالك النظام (صلاحية كاملة)</option>}
                                     </select>
                                 </div>
                                 <div className="space-y-2">
                                     <label htmlFor="emp-branch" className="text-sm font-medium text-muted-foreground">الفرع التابع له</label>
-                                    <select id="emp-branch" name="branch_id" className="w-full bg-background border border-border rounded-xl p-3 text-foreground focus:border-cyan-500" value={formData.branch_id} onChange={e => setFormData({...formData, branch_id: e.target.value})}>
-                                        <option value="">-- كل الفروع (للمدراء) --</option>
-                                        {branches.map(b => (
+                                    <select id="emp-branch" name="branch_id" className="w-full bg-background border border-border rounded-xl p-3 text-foreground focus:border-cyan-500" value={scopeBranch || formData.branch_id} disabled={!!scopeBranch} onChange={e => setFormData({...formData, branch_id: e.target.value})}>
+                                        {!scopeBranch && <option value="">-- كل الفروع (للمدراء) --</option>}
+                                        {branches.filter(b => !scopeBranch || b.id === scopeBranch).map(b => (
                                             <option key={b.id} value={b.id}>{b.name}</option>
                                         ))}
                                     </select>
@@ -748,20 +756,21 @@ export default function SettingsPage() {
                                 <div className="space-y-2">
                                     <label htmlFor="edit-emp-role" className="text-sm font-medium text-muted-foreground">الصلاحية</label>
                                     <select id="edit-emp-role" name="role" className="w-full bg-cyan-950/20 border border-cyan-900/50 font-bold rounded-xl p-3 text-cyan-400 focus:border-cyan-500" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
-                                        <option value="Receptionist">موظف استقبال</option>
-                                        <option value="Supervisor">مشرف فني (ورشة)</option>
+                                        <option value="Receptionist">موظف استقبال (يبيع)</option>
+                                        <option value="Supervisor">مشرف شفت (ينظم ساحة الورشة)</option>
                                         <option value="Technician">فني (يشوف حسابه ومهامه فقط)</option>
                                         {/* Only a real admin may hand out admin-level roles — the server
                                             enforces the same rule, so hide what would just fail. */}
+                                        {(isAdmin || formData.role === 'BranchManager') && <option value="BranchManager" disabled={!isAdmin}>مدير فرع (يدير فرعه فقط، ويضيف حساباته)</option>}
                                         {isAdmin && <option value="Admin">مدير عام (أقصى صلاحية)</option>}
                                         {employeeRole === 'Owner' && <option value="Owner">مالك النظام (صلاحية كاملة)</option>}
                                     </select>
                                 </div>
                                 <div className="space-y-2">
                                     <label htmlFor="edit-emp-branch" className="text-sm font-medium text-muted-foreground">الفرع التابع له</label>
-                                    <select id="edit-emp-branch" name="branch_id" className="w-full bg-background border border-border rounded-xl p-3 text-foreground focus:border-cyan-500" value={formData.branch_id} onChange={e => setFormData({...formData, branch_id: e.target.value})}>
-                                        <option value="">-- كل الفروع (للمدراء) --</option>
-                                        {branches.map(b => (
+                                    <select id="edit-emp-branch" name="branch_id" className="w-full bg-background border border-border rounded-xl p-3 text-foreground focus:border-cyan-500" value={scopeBranch || formData.branch_id} disabled={!!scopeBranch} onChange={e => setFormData({...formData, branch_id: e.target.value})}>
+                                        {!scopeBranch && <option value="">-- كل الفروع (للمدراء) --</option>}
+                                        {branches.filter(b => !scopeBranch || b.id === scopeBranch).map(b => (
                                             <option key={b.id} value={b.id}>{b.name}</option>
                                         ))}
                                     </select>

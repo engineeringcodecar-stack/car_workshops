@@ -725,7 +725,7 @@ export interface Database {
       }
     }
     Enums: {
-      user_role: "Owner" | "Admin" | "Supervisor" | "Receptionist" | "Technician"
+      user_role: "Owner" | "Admin" | "BranchManager" | "Supervisor" | "Receptionist" | "Technician"
       report_status: "تم الاستلام" | "قيد العمل" | "تم الانتهاء" | "متأخر" | "ملغى"
       service_status: "سليم" | "يحتاج صيانة" | "تالف"
     }

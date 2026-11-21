@@ -142,7 +142,7 @@ export default function EmployeesPage() {
                                             emp.role === 'Supervisor' ? 'bg-blue-500/20 text-blue-500' :
                                             'bg-muted text-muted-foreground'
                                         }`}>
-                                            <Shield size={12} /> {emp.role === 'Admin' ? 'مدير عام' : emp.role === 'Supervisor' ? 'مشرف فني' : 'استقبال ومبيعات'}
+                                            <Shield size={12} /> {emp.role === 'Admin' ? 'مدير عام' : emp.role === 'BranchManager' ? 'مدير فرع' : emp.role === 'Supervisor' ? 'مشرف شفت' : emp.role === 'Technician' ? 'فني' : 'استقبال ومبيعات'}
                                         </span>
                                     </div>
                                 </div>

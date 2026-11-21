@@ -51,7 +51,7 @@ export function legacyAllowedPages(role: string | null, flags: {
     if (flags.permission_reception ?? true) out.push('reception');
     out.push('suggestions');
     if (flags.permission_work_orders ?? true) out.push('work-orders');
-    if (role === 'Supervisor' || (flags.permission_reception ?? true) || (flags.permission_work_orders ?? true)) out.push('audit');
+    if (role === 'Supervisor' || role === 'BranchManager' || (flags.permission_reception ?? true) || (flags.permission_work_orders ?? true)) out.push('audit');
     if (flags.permission_customers ?? true) out.push('customers');
     if (flags.permission_reports ?? true) out.push('reports');
     if (flags.permission_employees) out.push('settings');

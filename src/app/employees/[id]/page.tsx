@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/AuthProvider";
 import { showConfirm, showError, showSuccess } from "@/lib/alerts";
 import { SERVICE_LABELS } from "@/app/technician-report/report";
-import { POINTS, badgesOf, levelOf, pointsOf, type Badge, type LevelInput } from "@/lib/staffLevel";
+import { badgesOf, dutyOf, levelOf, pointsOf, rulesFor, type Badge, type LevelInput } from "@/lib/staffLevel";
 
 type TargetRow = { id: string; metric_key: string; title: string; target_value: number; unit: string; period_start: string; period_end: string; inventory_id?: string | null; service_filter?: string | null };
 type Task = { id: string; title: string; details: string | null; due_date: string | null; status: string; created_at: string; completed_at?: string | null; source?: string | null };
@@ -41,6 +41,7 @@ const inRange = (day: string, from: string, to: string) => !!day && (!from || da
 type WorkRow = {
     id: string; report_number: number; status: string; order_type: string | null; branch_name: string | null;
     created_at: string; completed_at: string | null; as_receptionist: boolean; as_technician: boolean;
+    as_supervisor?: boolean; is_delayed?: boolean;
     service_keys: string[] | null; custom_services: string[] | null; products: { inventory_id: string | null; qty: unknown }[] | null;
     rating: number | null; total_price: number | null; client_id: string | null; client_name: string | null;
     make: string | null; model: string | null; plate_number: string | null;
@@ -67,6 +68,7 @@ export default function EmployeeProfilePage() {
     const [complaints, setComplaints] = useState<Complaint[]>([]);
     const [received, setReceived] = useState<WorkRow[]>([]);
     const [assigned, setAssigned] = useState<WorkRow[]>([]);
+    const [supervised, setSupervised] = useState<WorkRow[]>([]);
     const [reports, setReports] = useState<any[]>([]);
     const [stockItems, setStockItems] = useState<{ id: string; name: string }[]>([]);
     const [loading, setLoading] = useState(true);
@@ -92,7 +94,7 @@ export default function EmployeeProfilePage() {
         if (!id) return;
         if (quiet) setRefreshing(true); else setLoading(true);
         try {
-            const emp = await supabase.from("employees").select("id,name,role,phone,branch_id,created_at,branches(name)").eq("id", id).maybeSingle();
+            const emp = await (supabase as any).from("employees").select("id,name,role,phone,branch_id,created_at,permission_reception,allowed_pages,branches(name)").eq("id", id).maybeSingle();
             if (emp.error) throw emp.error;
             const targetRows = await (supabase as any).from("employee_targets").select("id,metric_key,title,target_value,unit,period_start,period_end,inventory_id,service_filter").eq("employee_id", id).is("deleted_at", null).order("period_start", { ascending: false });
             if (targetRows.error) throw targetRows.error;
@@ -101,7 +103,7 @@ export default function EmployeeProfilePage() {
             // The employee's whole history (since the system started) in one call: as receptionist, and
             // as technician by account or by the name on the work card in their branch.
             const empBranch = emp.data?.branch_id || null;
-            const managesHere = isAdmin || employeeRole === "Supervisor";
+            const managesHere = isAdmin || employeeRole === "Supervisor" || employeeRole === "BranchManager";
             let reportPicker = supabase.from("inspection_reports").select("id,report_number,created_at,vehicle_id,vehicles(client_id,make,model,plate_number,clients(name))").order("created_at", { ascending: false }).limit(300);
             if (empBranch) reportPicker = reportPicker.eq("branch_id", empBranch);
             const [taskRows, complaintRows, workRowsRes, reportRows, stockRows] = await Promise.all([
@@ -109,7 +111,7 @@ export default function EmployeeProfilePage() {
                 (supabase as any).from("service_complaints").select("id,report_id,client_id,summary,details,status,received_at").eq("employee_id", id).is("deleted_at", null).order("received_at", { ascending: false }),
                 (supabase as any).rpc("employee_work_orders", { p_employee: id }),
                 managesHere ? reportPicker : Promise.resolve({ data: [] }),
-                isAdmin ? supabase.from("inventory").select("id,name,branch_id").order("name").limit(1000) : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+                isAdmin || employeeRole === "BranchManager" ? supabase.from("inventory").select("id,name,branch_id").order("name").limit(1000) : Promise.resolve({ data: [] as { id: string; name: string }[] }),
             ]);
             for (const r of [taskRows, complaintRows, workRowsRes]) if (r.error) throw r.error;
             const work = (workRowsRes.data || []) as WorkRow[];
@@ -119,6 +121,7 @@ export default function EmployeeProfilePage() {
             setComplaints((complaintRows.data || []) as Complaint[]);
             setReceived(work.filter(r => r.as_receptionist));
             setAssigned(work.filter(r => r.as_technician));
+            setSupervised(work.filter(r => r.as_supervisor));
             setReports(reportRows.data || []);
             setStockItems((stockRows.data || []) as { id: string; name: string }[]);
         } catch (e) { showError("تعذر تحميل ملف الموظف", errorText(e)); }
@@ -130,10 +133,12 @@ export default function EmployeeProfilePage() {
     const isOwn = !!employeeId && employeeId === id;
     const sameBranch = !employeeBranchId || !employee?.branch_id || employee.branch_id === employeeBranchId;
     const isBranchSupervisor = employeeRole === "Supervisor" && sameBranch;
-    const canView = isAdmin || isOwn || isBranchSupervisor;
-    const canManage = isAdmin;
+    // A branch manager runs their own branch: targets, tasks and complaints of its staff (not their own).
+    const isBranchManagerHere = employeeRole === "BranchManager" && !!employeeBranchId && employee?.branch_id === employeeBranchId;
+    const canView = isAdmin || isOwn || isBranchSupervisor || isBranchManagerHere;
+    const canManage = isAdmin || (isBranchManagerHere && !isOwn);
     // A Supervisor handles complaints of their branch, but not the ones filed against themselves.
-    const canManageComplaints = isAdmin || (isBranchSupervisor && !isOwn);
+    const canManageComplaints = isAdmin || ((isBranchSupervisor || isBranchManagerHere) && !isOwn);
 
     // ── Everything below follows the period filter ──
     const { from, to } = range;
@@ -141,8 +146,9 @@ export default function EmployeeProfilePage() {
         const merged = new Map<string, WorkRow & { staffRole: string }>();
         for (const r of received) merged.set(r.id, { ...r, staffRole: "استقبال" });
         for (const r of assigned) merged.set(r.id, { ...r, staffRole: merged.has(r.id) ? "استقبال وفني" : "فني" });
+        for (const r of supervised) merged.set(r.id, { ...r, staffRole: merged.has(r.id) ? `${merged.get(r.id)!.staffRole} ومشرف` : "مشرف شفت" });
         return [...merged.values()].filter(r => inRange(localDay(r.created_at), from, to)).sort((a, b) => b.created_at.localeCompare(a.created_at));
-    }, [received, assigned, from, to]);
+    }, [received, assigned, supervised, from, to]);
     const receivedInPeriod = received.filter(r => isLive(r) && r.order_type !== "sale" && inRange(localDay(r.created_at), from, to));
     const completedInPeriod = assigned.filter(r => r.status === "تم الانتهاء" && inRange(localDay(r.completed_at || r.created_at), from, to));
     const tasksInPeriod = tasks.filter(t => !from || !to || inRange(t.due_date || localDay(t.created_at), from, to) || (t.status !== "مكتملة" && (t.due_date || "") < from));
@@ -154,12 +160,20 @@ export default function EmployeeProfilePage() {
     const activeReceived = received.filter(row => isLive(row) && row.order_type !== "sale");
 
     // ── Level («كأنك داخل لعبة»): points from all the employee's work since the start ──
+    // Points follow the job: the receptionist sells, the technician works the orders, the shift
+    // supervisor runs the floor (a supervisor/branch manager at the counter also sells).
+    const duty = useMemo(() => {
+        const pages = employee?.allowed_pages;
+        const atReception = Array.isArray(pages) ? pages.includes("reception") : !!employee?.permission_reception;
+        return dutyOf(employee?.role, atReception);
+    }, [employee]);
     const levelInput = useMemo<LevelInput>(() => ({
-        received: received.filter(isLive).map(r => ({ created_at: r.created_at, order_type: r.order_type, services: r.order_type === "sale" ? 0 : serviceNames(r).length })),
-        completed: assigned.filter(r => isLive(r) && r.status === "تم الانتهاء").map(r => ({ at: r.completed_at || r.created_at, rating: r.rating == null ? null : Number(r.rating) })),
+        received: duty.sells ? received.filter(isLive).map(r => ({ created_at: r.created_at, order_type: r.order_type, services: r.order_type === "sale" ? 0 : serviceNames(r).length })) : [],
+        completed: duty.works ? assigned.filter(r => isLive(r) && r.status === "تم الانتهاء").map(r => ({ at: r.completed_at || r.created_at, rating: r.rating == null ? null : Number(r.rating) })) : [],
+        supervised: duty.supervises ? supervised.filter(r => isLive(r) && r.status === "تم الانتهاء").map(r => ({ at: r.completed_at || r.created_at, late: !!r.is_delayed })) : [],
         tasksDone: tasks.filter(t => t.status === "مكتملة").map(t => ({ at: t.completed_at || t.created_at })),
         complaints: complaints.map(c => ({ at: c.received_at, resolved: c.status === "تم الحل" })),
-    }), [received, assigned, tasks, complaints]);
+    }), [duty, received, assigned, supervised, tasks, complaints]);
     const levelView = useMemo(() => {
         const now = new Date();
         const monthStart = dayOf(new Date(now.getFullYear(), now.getMonth(), 1));
@@ -169,9 +183,10 @@ export default function EmployeeProfilePage() {
             level: levelOf(Math.max(0, pointsOf(levelInput, localDay))),
             thisMonth: pointsOf(levelInput, localDay, monthStart, today()),
             lastMonth: pointsOf(levelInput, localDay, lastStart, lastEnd),
-            badges: badgesOf(levelInput, localDay, monthStart),
+            badges: badgesOf(levelInput, localDay, monthStart, duty),
+            rules: rulesFor(duty),
         };
-    }, [levelInput]);
+    }, [levelInput, duty]);
     const monthly = useMemo(() => {
         const months = new Map<string, { received: number; sales: number; completed: number; amount: number }>();
         const bucket = (iso?: string | null) => { const key = localDay(iso).slice(0, 7); if (!key) return null; if (!months.has(key)) months.set(key, { received: 0, sales: 0, completed: 0, amount: 0 }); return months.get(key)!; };
@@ -287,12 +302,12 @@ export default function EmployeeProfilePage() {
     if (authLoading || loading) return <div className="min-h-screen flex items-center justify-center" dir="rtl"><Loader2 className="animate-spin" /></div>;
     if (!canView || !employee) return <div className="min-h-screen flex items-center justify-center" dir="rtl"><div className="glass-card p-8 rounded-2xl text-center">غير مصرح أو أن الحساب غير موجود.</div></div>;
 
-    const roleLabel = employee.role === "Receptionist" ? "موظف استقبال" : employee.role === "Technician" ? "فني" : employee.role === "Supervisor" ? "مشرف" : employee.role === "Admin" ? "مدير" : employee.role === "Owner" ? "المالك" : employee.role;
+    const roleLabel = employee.role === "Receptionist" ? "موظف استقبال" : employee.role === "Technician" ? "فني" : employee.role === "Supervisor" ? "مشرف شفت" : employee.role === "BranchManager" ? "مدير فرع" : employee.role === "Admin" ? "مدير" : employee.role === "Owner" ? "المالك" : employee.role;
     const branchName = one<any>(employee.branches)?.name || "الفرع غير محدد";
     const periodLabel = preset === "all" ? "كل الفترات" : from && to ? (from === to ? from : `${from} إلى ${to}`) : "—";
 
     return <main className="min-h-screen p-5 md:p-8 font-ibm" dir="rtl"><div className="max-w-6xl mx-auto space-y-6">
-        {(isAdmin || employeeRole === "Supervisor") && !isOwn && <Link href="/sales-reports" className="text-sm text-cyan-400 flex items-center gap-2"><ArrowRight size={16} />تقارير المبيعات والأداء</Link>}
+        {(isAdmin || employeeRole === "Supervisor" || employeeRole === "BranchManager") && !isOwn && <Link href="/sales-reports" className="text-sm text-cyan-400 flex items-center gap-2"><ArrowRight size={16} />تقارير المبيعات والأداء</Link>}
 
         <header className="glass-card p-6 rounded-2xl flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-4">
@@ -453,11 +468,10 @@ function SaveButton({ saving, className, children }: { saving: boolean; classNam
 }
 function Modal({ title, close, children }: { title: string; close: () => void; children: React.ReactNode }) { return <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl"><div className="glass-card w-full max-w-md rounded-2xl p-5"><div className="flex justify-between items-center mb-5"><h3 className="font-bold text-lg">{title}</h3><button onClick={close} className="text-muted-foreground">إغلاق</button></div>{children}</div></div>; }
 
-function LevelCard({ view, own }: { view: { level: ReturnType<typeof levelOf>; thisMonth: number; lastMonth: number; badges: Badge[] }; own: boolean }) {
-    const { level, thisMonth, lastMonth, badges } = view;
+function LevelCard({ view, own }: { view: { level: ReturnType<typeof levelOf>; thisMonth: number; lastMonth: number; badges: Badge[]; rules: [string, number][] }; own: boolean }) {
+    const { level, thisMonth, lastMonth, badges, rules } = view;
     const pct = Math.round(level.into / level.span * 100);
     const up = thisMonth >= lastMonth;
-    const rules: [string, number][] = [["سيارة تستلمها", POINTS.carReceived], ["خدمة تنباع على السيارة", POINTS.serviceSold], ["بيع مباشر", POINTS.directSale], ["أمر عمل تنجزه كفني", POINTS.orderCompleted], ["تقييم 5 نجوم", POINTS.rating5], ["تقييم 4 نجوم", POINTS.rating4], ["مهمة تنجزها", POINTS.taskDone], ["تقييم نجمة أو نجمتين", POINTS.lowRating], ["شكوى عليك", POINTS.complaint], ["شكوى انحلت", POINTS.complaintResolved]];
     return <section className="glass-card rounded-2xl p-5 md:p-6 border border-violet-500/20 bg-gradient-to-l from-violet-500/10 via-transparent to-transparent">
         <div className="flex flex-wrap items-center gap-5">
             <div className="relative w-24 h-24 shrink-0 rounded-full flex items-center justify-center" style={{ background: `conic-gradient(rgb(139 92 246) ${pct * 3.6}deg, rgb(139 92 246 / 0.15) 0deg)` }}>

@@ -31,7 +31,7 @@ export default function SalesReportsPage() {
     const { employeeRole, employeeBranchId, allowedPages, permissionInventoryPrices, loading: authLoading } = useAuth();
     const isAdmin = employeeRole === "Owner" || employeeRole === "Admin";
     const canSeePrices = isAdmin || !!permissionInventoryPrices;
-    const authorized = isAdmin || employeeRole === "Supervisor" || !!allowedPages?.includes("sales-reports");
+    const authorized = isAdmin || employeeRole === "Supervisor" || employeeRole === "BranchManager" || !!allowedPages?.includes("sales-reports");
     const [from, setFrom] = useState(() => dateInput(new Date(Date.now() - 29 * 86400000)));
     const [to, setTo] = useState(() => dateInput(new Date()));
     const [branch, setBranch] = useState("");

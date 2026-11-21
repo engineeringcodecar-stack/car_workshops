@@ -295,7 +295,7 @@ export default function KanbanStatusPage() {
                                                 </p>
 
                                                 <div className="flex items-center justify-between mt-auto pt-3 border-t border-border gap-2">
-                                                    {(column.id === 'تم الاستلام' && (employeeRole === 'Supervisor' || employeeRole === 'Admin' || employeeRole === 'Owner')) ? (
+                                                    {(column.id === 'تم الاستلام' && (employeeRole === 'Supervisor' || employeeRole === 'BranchManager' || employeeRole === 'Admin' || employeeRole === 'Owner')) ? (
                                                         <button 
                                                             onClick={() => handleOpenAssignModal(order.id)}
                                                             className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-colors"

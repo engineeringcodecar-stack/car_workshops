@@ -104,7 +104,7 @@ export function Sidebar() {
                 { href: "/inventory", label: "المخزن الموحد (تجريبي)", icon: <Package size={20} />, roles: ["Owner", "Admin"] },
                 // { href: "/services", label: "الفحص والصيانة", icon: <Hammer size={20} />, roles: ["Owner", "Admin", "Supervisor"] },
                 { href: "/work-orders", label: "ساحة الورشة (العمل الحي)", icon: <Wrench size={20} /> },
-                { href: "/audit", label: "التدقيق والمحاسبة", icon: <ClipboardCheck size={20} />, roles: ["Owner", "Admin", "Supervisor"] },
+                { href: "/audit", label: "التدقيق والمحاسبة", icon: <ClipboardCheck size={20} />, roles: ["Owner", "Admin", "BranchManager", "Supervisor"] },
                 // { href: "/status", label: "متابعة وإنجاز العمل", icon: <Activity size={20} /> }
             ]
         },
@@ -124,11 +124,11 @@ export function Sidebar() {
         {
             title: "التقارير والتصدير",
             items: [
-                { href: "/reports", label: "الفواتير والتقارير (PDF)", icon: <FileText size={20} />, roles: ["Owner", "Admin", "Supervisor"] },
-                { href: "/technician-report", label: "تقرير الفنيين اليومي", icon: <Wrench size={20} />, roles: ["Owner", "Admin", "Supervisor"] },
+                { href: "/reports", label: "الفواتير والتقارير (PDF)", icon: <FileText size={20} />, roles: ["Owner", "Admin", "BranchManager", "Supervisor"] },
+                { href: "/technician-report", label: "تقرير الفنيين اليومي", icon: <Wrench size={20} />, roles: ["Owner", "Admin", "BranchManager", "Supervisor"] },
                 { href: "/financial-reports", label: "السجلات والدفاتر (Excel)", icon: <FileSpreadsheet size={20} />, roles: ["Owner", "Admin"] },
-                { href: "/sales-reports", label: "تقارير المبيعات والتحليل", icon: <TrendingUp size={20} />, roles: ["Owner", "Admin", "Supervisor"] },
-                { href: "/sales-plan", label: "خطة المبيعات الشهرية", icon: <Target size={20} />, roles: ["Owner", "Admin", "Supervisor"] },
+                { href: "/sales-reports", label: "تقارير المبيعات والتحليل", icon: <TrendingUp size={20} />, roles: ["Owner", "Admin", "BranchManager", "Supervisor"] },
+                { href: "/sales-plan", label: "خطة المبيعات الشهرية", icon: <Target size={20} />, roles: ["Owner", "Admin", "BranchManager", "Supervisor"] },
             ]
         },
         {
@@ -176,6 +176,8 @@ export function Sidebar() {
 
             // Owner and Admin always see every tab.
             if (employeeRole === 'Owner' || employeeRole === 'Admin') return true;
+            // A branch manager always has the accounts, plan and sales pages of their branch.
+            if (employeeRole === 'BranchManager' && ['/settings', '/sales-plan', '/sales-reports'].includes(item.href)) return true;
 
             // Per-tab permissions (الإعدادات → صلاحيات التبويبات): when configured,
             // the allowed_pages list is the single source of truth for this employee.
@@ -189,14 +191,14 @@ export function Sidebar() {
             if (item.href === '/assistant') return false;
             if (item.href === '/reception') return !!permissionReception;
             if (item.href === '/work-orders') return !!permissionWorkOrders;
-            if (item.href === '/audit') return employeeRole === 'Supervisor' || !!permissionWorkOrders || !!permissionReception;
+            if (item.href === '/audit') return employeeRole === 'Supervisor' || employeeRole === 'BranchManager' || !!permissionWorkOrders || !!permissionReception;
             if (item.href === '/customers') return !!permissionCustomers;
             if (item.href === '/reports') return !!permissionReports;
             // تقرير الفنيين: مخفي عن الموظفين افتراضياً — يظهر فقط لمن يُمنح التبويب صراحةً.
             if (item.href === '/technician-report') return false;
             if (item.href === '/financial-reports') return false;
-            if (item.href === '/sales-reports') return employeeRole === 'Supervisor';
-            if (item.href === '/sales-plan') return employeeRole === 'Supervisor';
+            if (item.href === '/sales-reports') return employeeRole === 'Supervisor' || employeeRole === 'BranchManager';
+            if (item.href === '/sales-plan') return employeeRole === 'Supervisor' || employeeRole === 'BranchManager';
             if (item.href === '/inventory') return false;
             if (item.href === '/hr/employees') return false;
             // العقود: money on credit — only for staff explicitly granted the tab.
