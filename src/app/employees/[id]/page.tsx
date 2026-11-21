@@ -46,6 +46,8 @@ type WorkRow = {
 };
 // Only what was actually done on the car: services marked «يحتاج تغيير», free services and custom lines.
 const serviceNames = (row: WorkRow) => [...(row.service_keys || []).map(key => SERVICE_LABELS[key] || key), ...(row.custom_services || [])];
+// Cancelled orders stay in the table (with their status) but never count in numbers or targets.
+const isLive = (row: WorkRow) => !["ملغى", "ملغي", "cancelled"].includes(row.status);
 const servicesOf = (row: WorkRow) => serviceNames(row).join("، ") || "—";
 const one = <T,>(v: T | T[] | null | undefined): T | null => (Array.isArray(v) ? v[0] ?? null : v ?? null);
 
@@ -140,19 +142,19 @@ export default function EmployeeProfilePage() {
         for (const r of assigned) merged.set(r.id, { ...r, staffRole: merged.has(r.id) ? "استقبال وفني" : "فني" });
         return [...merged.values()].filter(r => inRange(localDay(r.created_at), from, to)).sort((a, b) => b.created_at.localeCompare(a.created_at));
     }, [received, assigned, from, to]);
-    const receivedInPeriod = received.filter(r => r.order_type !== "sale" && inRange(localDay(r.created_at), from, to));
+    const receivedInPeriod = received.filter(r => isLive(r) && r.order_type !== "sale" && inRange(localDay(r.created_at), from, to));
     const completedInPeriod = assigned.filter(r => r.status === "تم الانتهاء" && inRange(localDay(r.completed_at || r.created_at), from, to));
     const tasksInPeriod = tasks.filter(t => !from || !to || inRange(t.due_date || localDay(t.created_at), from, to) || (t.status !== "مكتملة" && (t.due_date || "") < from));
     const complaintsInPeriod = complaints.filter(c => inRange(localDay(c.received_at), from, to));
     const targetsInPeriod = targets.filter(t => !from || !to || (t.period_end >= from && t.period_start <= to));
-    const ratingValues = assigned.filter(r => inRange(localDay(r.created_at), from, to)).map(row => Number(row.rating || 0)).filter(value => value > 0);
+    const ratingValues = assigned.filter(r => isLive(r) && inRange(localDay(r.created_at), from, to)).map(row => Number(row.rating || 0)).filter(value => value > 0);
     const averageRating = ratingValues.length ? (ratingValues.reduce((sum, value) => sum + value, 0) / ratingValues.length).toFixed(1) : "—";
 
-    const activeReceived = received.filter(row => row.order_type !== "sale");
+    const activeReceived = received.filter(row => isLive(row) && row.order_type !== "sale");
     const monthly = useMemo(() => {
         const months = new Map<string, { received: number; sales: number; completed: number; amount: number }>();
         const bucket = (iso?: string | null) => { const key = localDay(iso).slice(0, 7); if (!key) return null; if (!months.has(key)) months.set(key, { received: 0, sales: 0, completed: 0, amount: 0 }); return months.get(key)!; };
-        for (const r of received) { const m = bucket(r.created_at); if (!m) continue; if (r.order_type === "sale") m.sales++; else m.received++; m.amount += Number(r.total_price || 0); }
+        for (const r of received) { if (!isLive(r)) continue; const m = bucket(r.created_at); if (!m) continue; if (r.order_type === "sale") m.sales++; else m.received++; m.amount += Number(r.total_price || 0); }
         for (const r of assigned) if (r.status === "تم الانتهاء") { const m = bucket(r.completed_at || r.created_at); if (m) m.completed++; }
         return [...months.entries()].sort((a, b) => b[0].localeCompare(a[0]));
     }, [received, assigned]);
@@ -162,7 +164,7 @@ export default function EmployeeProfilePage() {
         const count = target.metric_key === "completed_orders"
             ? assigned.filter(row => row.status === "تم الانتهاء" && within(row.completed_at)).length
             : target.metric_key === "product_units"
-                ? received.filter(row => row.order_type === "sale" && within(row.created_at)).reduce((sum, row) =>
+                ? received.filter(row => isLive(row) && row.order_type === "sale" && within(row.created_at)).reduce((sum, row) =>
                     sum + (row.products || []).reduce((n, p) => n + ((!target.inventory_id || p?.inventory_id === target.inventory_id) ? Number(p?.qty || 0) : 0), 0), 0)
                 : target.metric_key === "service_cars"
                     ? rows.filter(row => {
