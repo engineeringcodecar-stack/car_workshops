@@ -39,16 +39,18 @@ Create a `.env` file in the project root:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=https://<your-project>.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<your anon key>
-SUPABASE_SERVICE_ROLE_KEY=<your service role key>
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<your publishable key>
+SUPABASE_SECRET_KEY=<your secret key>
 ```
 
 - `NEXT_PUBLIC_*` keys are exposed to the browser (safe — anon key is protected by
   Row-Level Security).
-- `SUPABASE_SERVICE_ROLE_KEY` is **server-only**. It bypasses RLS and must never be
+- `SUPABASE_SECRET_KEY` is **server-only**. It bypasses RLS and must never be
   sent to the client. It is used solely by the admin server actions in
   [`src/app/actions/admin.ts`](./src/app/actions/admin.ts), which are guarded by
   `requireAdmin()`.
+- Legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` variables
+  remain supported for existing deployments.
 
 ### 3. Run
 

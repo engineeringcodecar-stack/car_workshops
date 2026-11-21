@@ -17,8 +17,8 @@ export async function createSupabaseServerClient() {
     const cookieStore = await cookies();
 
     return createServerClient<Database>(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         {
             // Must match the browser client exactly — see supabase-cookie.ts.
             cookieOptions: { name: AUTH_COOKIE_NAME },
@@ -44,8 +44,8 @@ export async function createSupabaseServerClient() {
 
 /** Build a service-role admin client (bypasses RLS). Server-only. */
 function createSupabaseAdminClient(): SupabaseClient<Database> | null {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!supabaseUrl || !serviceRoleKey) return null;
 
     return createClient<Database>(supabaseUrl, serviceRoleKey, {
@@ -94,7 +94,7 @@ async function resolveCaller(): Promise<CallerResult> {
         return {
             ok: false,
             error:
-                "إعدادات الخادم ناقصة: مفتاح SUPABASE_SERVICE_ROLE_KEY غير مضبوط. " +
+                "إعدادات الخادم ناقصة: SUPABASE_SECRET_KEY أو SUPABASE_SERVICE_ROLE_KEY غير مضبوط. " +
                 "أضفه في متغيرات البيئة (Environment Variables) وأعد النشر.",
         };
     }

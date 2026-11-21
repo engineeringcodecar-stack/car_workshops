@@ -49,7 +49,7 @@ const getCustomWebSocket = () => {
 
 export const supabase = createBrowserClient<Database>(
     getSupabaseUrl(),
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
         // Pin the session cookie name. Without this it is derived from the proxy
         // URL above, which does NOT match what the server client derives from the

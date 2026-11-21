@@ -23,7 +23,7 @@
  * local) keep their own distinct cookie.
  */
 function deriveAuthCookieName(): string {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
     if (url) {
         try {
             const ref = new URL(url).hostname.split(".")[0];
