@@ -6,18 +6,17 @@ import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/AuthProvider";
 
 /**
- * «مهامي» and «حسابي الشخصي» in the sidebar: open the signed-in employee's own profile, so
- * nobody needs a link from the manager. The id comes from the session (AuthProvider), never
- * from the address, so this can only ever lead to the employee's own page.
+ * «حسابي الشخصي» in the sidebar: opens the signed-in employee's own profile. The id comes from
+ * the session (AuthProvider), never from the address, so this only ever leads to their own page.
  */
-export default function OpenOwnProfile({ section }: { section?: "tasks" }) {
+export default function OpenOwnProfile() {
     const router = useRouter();
     const { employeeId, loading } = useAuth();
 
     useEffect(() => {
         if (loading || !employeeId) return;
-        router.replace(`/employees/${employeeId}${section ? `#${section}` : ""}`);
-    }, [loading, employeeId, section, router]);
+        router.replace(`/employees/${employeeId}`);
+    }, [loading, employeeId, router]);
 
     return (
         <div className="min-h-screen flex items-center justify-center" dir="rtl">

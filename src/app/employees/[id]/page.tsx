@@ -137,12 +137,6 @@ export default function EmployeeProfilePage() {
 
     useEffect(() => { if (!authLoading) fetchProfile(employee !== null); }, [authLoading, fetchProfile]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // «مهامي» opens this page with #tasks: bring the tasks into view once they are on screen.
-    useEffect(() => {
-        if (loading || typeof window === "undefined" || window.location.hash !== "#tasks") return;
-        document.getElementById("tasks")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, [loading]);
-
     const isOwn = !!employeeId && employeeId === id;
     const sameBranch = !employeeBranchId || !employee?.branch_id || employee.branch_id === employeeBranchId;
     const isBranchSupervisor = employeeRole === "Supervisor" && sameBranch;
