@@ -3,14 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowRight, CalendarRange, ClipboardList, History, Loader2, MessageSquareWarning, Pencil, RotateCcw, Target, Trash2, UserRound, Wrench } from "lucide-react";
+import { ArrowRight, Award, CalendarRange, ClipboardList, History, Loader2, Lock, TrendingDown, TrendingUp, MessageSquareWarning, Pencil, RotateCcw, Target, Trash2, UserRound, Wrench } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/AuthProvider";
 import { showConfirm, showError, showSuccess } from "@/lib/alerts";
 import { SERVICE_LABELS } from "@/app/technician-report/report";
+import { POINTS, badgesOf, levelOf, pointsOf, type Badge, type LevelInput } from "@/lib/staffLevel";
 
 type TargetRow = { id: string; metric_key: string; title: string; target_value: number; unit: string; period_start: string; period_end: string; inventory_id?: string | null; service_filter?: string | null };
-type Task = { id: string; title: string; details: string | null; due_date: string | null; status: string; created_at: string; source?: string | null };
+type Task = { id: string; title: string; details: string | null; due_date: string | null; status: string; created_at: string; completed_at?: string | null; source?: string | null };
 type Complaint = { id: string; report_id: string | null; client_id?: string | null; summary: string; details: string | null; status: string; received_at: string };
 type StaffTable = "employee_targets" | "employee_tasks" | "service_complaints";
 type Preset = "today" | "week" | "month" | "all" | "custom";
@@ -104,7 +105,7 @@ export default function EmployeeProfilePage() {
             let reportPicker = supabase.from("inspection_reports").select("id,report_number,created_at,vehicle_id,vehicles(client_id,make,model,plate_number,clients(name))").order("created_at", { ascending: false }).limit(300);
             if (empBranch) reportPicker = reportPicker.eq("branch_id", empBranch);
             const [taskRows, complaintRows, workRowsRes, reportRows, stockRows] = await Promise.all([
-                (supabase as any).from("employee_tasks").select("id,title,details,due_date,status,created_at,source").eq("employee_id", id).is("deleted_at", null).order("created_at", { ascending: false }),
+                (supabase as any).from("employee_tasks").select("id,title,details,due_date,status,created_at,completed_at,source").eq("employee_id", id).is("deleted_at", null).order("created_at", { ascending: false }),
                 (supabase as any).from("service_complaints").select("id,report_id,client_id,summary,details,status,received_at").eq("employee_id", id).is("deleted_at", null).order("received_at", { ascending: false }),
                 (supabase as any).rpc("employee_work_orders", { p_employee: id }),
                 managesHere ? reportPicker : Promise.resolve({ data: [] }),
@@ -151,6 +152,26 @@ export default function EmployeeProfilePage() {
     const averageRating = ratingValues.length ? (ratingValues.reduce((sum, value) => sum + value, 0) / ratingValues.length).toFixed(1) : "—";
 
     const activeReceived = received.filter(row => isLive(row) && row.order_type !== "sale");
+
+    // ── Level («كأنك داخل لعبة»): points from all the employee's work since the start ──
+    const levelInput = useMemo<LevelInput>(() => ({
+        received: received.filter(isLive).map(r => ({ created_at: r.created_at, order_type: r.order_type, services: r.order_type === "sale" ? 0 : serviceNames(r).length })),
+        completed: assigned.filter(r => isLive(r) && r.status === "تم الانتهاء").map(r => ({ at: r.completed_at || r.created_at, rating: r.rating == null ? null : Number(r.rating) })),
+        tasksDone: tasks.filter(t => t.status === "مكتملة").map(t => ({ at: t.completed_at || t.created_at })),
+        complaints: complaints.map(c => ({ at: c.received_at, resolved: c.status === "تم الحل" })),
+    }), [received, assigned, tasks, complaints]);
+    const levelView = useMemo(() => {
+        const now = new Date();
+        const monthStart = dayOf(new Date(now.getFullYear(), now.getMonth(), 1));
+        const lastStart = dayOf(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+        const lastEnd = dayOf(new Date(now.getFullYear(), now.getMonth(), 0));
+        return {
+            level: levelOf(Math.max(0, pointsOf(levelInput, localDay))),
+            thisMonth: pointsOf(levelInput, localDay, monthStart, today()),
+            lastMonth: pointsOf(levelInput, localDay, lastStart, lastEnd),
+            badges: badgesOf(levelInput, localDay, monthStart),
+        };
+    }, [levelInput]);
     const monthly = useMemo(() => {
         const months = new Map<string, { received: number; sales: number; completed: number; amount: number }>();
         const bucket = (iso?: string | null) => { const key = localDay(iso).slice(0, 7); if (!key) return null; if (!months.has(key)) months.set(key, { received: 0, sales: 0, completed: 0, amount: 0 }); return months.get(key)!; };
@@ -285,6 +306,8 @@ export default function EmployeeProfilePage() {
                 {canManage && <button onClick={openDeletedLog} className="px-4 py-2 rounded-xl border border-border text-muted-foreground hover:text-foreground font-bold flex items-center gap-2"><History size={16} />المحذوفات</button>}
             </div>}
         </header>
+
+        <LevelCard view={levelView} own={isOwn} />
 
         {/* Period filter */}
         <section className="glass-card p-4 rounded-2xl flex flex-wrap items-center gap-3">
@@ -429,3 +452,33 @@ function SaveButton({ saving, className, children }: { saving: boolean; classNam
     return <button disabled={saving} className={`w-full ${className} text-white rounded-xl py-2 font-bold flex items-center justify-center gap-2 disabled:opacity-60`}>{saving && <Loader2 size={16} className="animate-spin" />}{children}</button>;
 }
 function Modal({ title, close, children }: { title: string; close: () => void; children: React.ReactNode }) { return <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl"><div className="glass-card w-full max-w-md rounded-2xl p-5"><div className="flex justify-between items-center mb-5"><h3 className="font-bold text-lg">{title}</h3><button onClick={close} className="text-muted-foreground">إغلاق</button></div>{children}</div></div>; }
+
+function LevelCard({ view, own }: { view: { level: ReturnType<typeof levelOf>; thisMonth: number; lastMonth: number; badges: Badge[] }; own: boolean }) {
+    const { level, thisMonth, lastMonth, badges } = view;
+    const pct = Math.round(level.into / level.span * 100);
+    const up = thisMonth >= lastMonth;
+    const rules: [string, number][] = [["سيارة تستلمها", POINTS.carReceived], ["خدمة تنباع على السيارة", POINTS.serviceSold], ["بيع مباشر", POINTS.directSale], ["أمر عمل تنجزه كفني", POINTS.orderCompleted], ["تقييم 5 نجوم", POINTS.rating5], ["تقييم 4 نجوم", POINTS.rating4], ["مهمة تنجزها", POINTS.taskDone], ["تقييم نجمة أو نجمتين", POINTS.lowRating], ["شكوى عليك", POINTS.complaint], ["شكوى انحلت", POINTS.complaintResolved]];
+    return <section className="glass-card rounded-2xl p-5 md:p-6 border border-violet-500/20 bg-gradient-to-l from-violet-500/10 via-transparent to-transparent">
+        <div className="flex flex-wrap items-center gap-5">
+            <div className="relative w-24 h-24 shrink-0 rounded-full flex items-center justify-center" style={{ background: `conic-gradient(rgb(139 92 246) ${pct * 3.6}deg, rgb(139 92 246 / 0.15) 0deg)` }}>
+                <div className="w-[84px] h-[84px] rounded-full bg-card flex flex-col items-center justify-center">
+                    <span className="text-[10px] text-muted-foreground">المستوى</span>
+                    <span className="text-3xl font-black text-violet-300 leading-none">{level.level}</span>
+                </div>
+            </div>
+            <div className="flex-1 min-w-[200px]">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><h2 className="text-xl font-black">{level.title}</h2><span className="text-sm text-muted-foreground">{level.xp.toLocaleString("en-US")} نقطة</span></div>
+                <div className="h-3 bg-muted rounded-full mt-3 overflow-hidden"><div className="h-full bg-gradient-to-l from-violet-400 to-fuchsia-500 rounded-full transition-all" style={{ width: `${pct}%` }} /></div>
+                <p className="text-sm mt-2"><b className="text-violet-300">باقي {level.toNext.toLocaleString("en-US")} نقطة</b> للمستوى {level.level + 1}{own ? " — يلا صعّد مستواك!" : ""}</p>
+            </div>
+            <div className="flex gap-3">
+                <div className="rounded-xl border border-border px-4 py-2 text-center"><div className="text-[11px] text-muted-foreground">نقاط هذا الشهر</div><div className={`text-xl font-bold flex items-center justify-center gap-1 ${up ? "text-emerald-400" : "text-rose-400"}`}>{up ? <TrendingUp size={16} /> : <TrendingDown size={16} />}{thisMonth.toLocaleString("en-US")}</div></div>
+                <div className="rounded-xl border border-border px-4 py-2 text-center"><div className="text-[11px] text-muted-foreground">الشهر الماضي</div><div className="text-xl font-bold">{lastMonth.toLocaleString("en-US")}</div></div>
+            </div>
+        </div>
+        <div className="flex flex-wrap gap-2 mt-5">{badges.map(b => <span key={b.key} title={b.hint} className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full border ${b.earned ? "border-amber-400/40 bg-amber-400/10 text-amber-300" : "border-border text-muted-foreground/60"}`}>{b.earned ? <Award size={14} /> : <Lock size={12} />}{b.label}</span>)}</div>
+        <details className="mt-4 text-xs text-muted-foreground"><summary className="cursor-pointer select-none">شلون تجمع النقاط؟</summary>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-3">{rules.map(([label, pts]) => <div key={label} className="rounded-lg border border-border px-3 py-2 flex justify-between gap-2"><span>{label}</span><b className={pts < 0 ? "text-rose-400" : "text-emerald-400"}>{pts > 0 ? `+${pts}` : pts}</b></div>)}</div>
+        </details>
+    </section>;
+}
