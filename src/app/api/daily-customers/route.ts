@@ -135,6 +135,30 @@ function unauthorized() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 }
 
+const PAGE_SIZE = 1000;
+const MAX_ROWS = 20000;
+
+/** Supabase/PostgREST returns at most 1000 rows per response by default.
+ * Page both a single day and the all-history feed so a large day is never
+ * mistaken for a complete result. The stable id tiebreaker prevents rows with
+ * identical created_at timestamps from shifting between pages.
+ */
+async function fetchAllPages(buildQuery: (from: number, to: number) => any) {
+    const rows: any[] = [];
+    for (let from = 0; from < MAX_ROWS; from += PAGE_SIZE) {
+        const { data, error } = await buildQuery(from, from + PAGE_SIZE - 1);
+        if (error) return { rows: null, error, tooMany: false };
+        const page = data || [];
+        rows.push(...page);
+        if (page.length < PAGE_SIZE) return { rows, error: null, tooMany: false };
+    }
+
+    // Detect overflow instead of silently returning a truncated "successful" response.
+    const { data: extra, error } = await buildQuery(MAX_ROWS, MAX_ROWS);
+    if (error) return { rows: null, error, tooMany: false };
+    return { rows: extra?.length ? null : rows, error: null, tooMany: !!extra?.length };
+}
+
 export async function GET(request: NextRequest) {
     // ── API-key gate ──
     // Accepted as a header (Authorization: Bearer <key> — the "Bearer " prefix is
@@ -175,33 +199,40 @@ export async function GET(request: NextRequest) {
     let data: any[] = [];
     if (wantAll) {
         // Page through everything (Supabase caps a single request at 1000 rows).
-        const PAGE = 1000, MAX = 20000;
-        for (let from = 0; from < MAX; from += PAGE) {
-            const { data: page, error } = await supabase
-                .from("inspection_reports").select(SELECT)
-                .order("created_at", { ascending: true })
-                .range(from, from + PAGE - 1);
-            if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-            data.push(...(page || []));
-            if (!page || page.length < PAGE) break;
-        }
+        const result = await fetchAllPages((from, to) => supabase
+            .from("inspection_reports").select(SELECT)
+            .order("created_at", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, to));
+        if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
+        if (result.tooMany) return NextResponse.json({ error: "النتائج تجاوزت الحد الآمن لجلبها دفعة واحدة. استخدم فلتر التاريخ لتقسيم السحب." }, { status: 413 });
+        data = result.rows || [];
     } else {
         const qp = params.get("date");
-        let dateStr = qp && /^\d{4}-\d{2}-\d{2}$/.test(qp) ? qp : null;
+        if (qp && !/^\d{4}-\d{2}-\d{2}$/.test(qp)) {
+            return NextResponse.json({ error: "صيغة التاريخ غير صحيحة. استخدم YYYY-MM-DD." }, { status: 400 });
+        }
+        let dateStr = qp || null;
         if (!dateStr) {
             const nowIraq = new Date(Date.now() + 3 * 3600 * 1000);
             dateStr = nowIraq.toISOString().slice(0, 10);
         }
+        const parsedDate = new Date(`${dateStr}T00:00:00Z`);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== dateStr) {
+            return NextResponse.json({ error: "صيغة التاريخ غير صحيحة. استخدم YYYY-MM-DD." }, { status: 400 });
+        }
         const start = new Date(`${dateStr}T00:00:00Z`); start.setUTCHours(start.getUTCHours() - 3);
         const end = new Date(`${dateStr}T23:59:59.999Z`); end.setUTCHours(end.getUTCHours() - 3);
-        const { data: day, error } = await supabase
+        const result = await fetchAllPages((from, to) => supabase
             .from("inspection_reports").select(SELECT)
             .gte("created_at", start.toISOString())
             .lte("created_at", end.toISOString())
             .order("created_at", { ascending: true })
-            .limit(1000);
-        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-        data = day || [];
+            .order("id", { ascending: true })
+            .range(from, to));
+        if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
+        if (result.tooMany) return NextResponse.json({ error: "سجلات هذا اليوم تجاوزت الحد الآمن لجلبها. جزّئ الفترة أو تواصل مع الدعم." }, { status: 413 });
+        data = result.rows || [];
     }
 
     const customers = (data || []).map((r: any) => {
