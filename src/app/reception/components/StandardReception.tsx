@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
+import StockMaterials, { isStockLine } from "./StockMaterials";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { useAuth } from "@/lib/AuthProvider";
@@ -245,7 +246,8 @@ function estimateMinutes(
         }
     });
     if (Array.isArray(customServices)) {
-        calculatedDuration += customServices.length * 30;
+        // Stock materials are not work of their own: they don't add time.
+        calculatedDuration += customServices.filter(c => !isStockLine(c)).length * 30;
     }
     return calculatedDuration || 30; // fallback minimum
 }
@@ -836,7 +838,8 @@ export default function StandardReception({
         });
     };
     // Where the wash has its own row, it is left out of the general list of extra lines.
-    const otherCustoms = hasCarWash ? customServices.filter(s => s.id !== CAR_WASH_ID) : customServices;
+    // Stock materials have their own section («مواد من المخزن»).
+    const otherCustoms = customServices.filter(s => (!hasCarWash || s.id !== CAR_WASH_ID) && !isStockLine(s));
 
     // Phone or Booklet Serial search
     useEffect(() => {
@@ -2085,6 +2088,13 @@ export default function StandardReception({
                                 <p className="px-3 pb-2 pr-[3.25rem] text-[11px] text-muted-foreground">اكتب السعر 0 إذا كان الغسل هدية، فيُطبع «هدية» في الفاتورة بدل السعر.</p>
                             </div>
                         )}
+
+                        {/* Materials from the branch stock, by packaging (deducted when the order is finished). */}
+                        {!isSale && <StockMaterials
+                            branchId={selectedBranchId || ""}
+                            lines={customServices.filter(isStockLine)}
+                            onChange={lines => setCustomServices(prev => [...prev.filter(s => !isStockLine(s)), ...lines])}
+                        />}
 
                         {/* Maintenance Events (أحداث الصيانة - previously Custom Services) */}
                         <div className="rounded-xl border border-border bg-background/40">

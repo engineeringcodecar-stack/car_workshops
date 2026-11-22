@@ -238,10 +238,12 @@ export default function ServicesPage() {
             const total = computeTotal();
 
             // 1. Update report status to completed
-            await supabase
+            const { error: finishErr } = await supabase
                 .from('inspection_reports')
                 .update({ status: 'تم الانتهاء', total_price: total, completed_at: new Date().toISOString() })
                 .eq('id', selectedReportId);
+            // e.g. a stock material on the order is short: the database refuses to finish it.
+            if (finishErr) throw new Error(finishErr.message);
 
             // 2. Insert granular service records for EACH item 
             const servicesToInsert: any[] = [];

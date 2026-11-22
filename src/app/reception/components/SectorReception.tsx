@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import StockMaterials, { isStockLine } from "./StockMaterials";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { useAuth } from "@/lib/AuthProvider";
@@ -347,7 +348,8 @@ function estimateMinutes(
         }
     });
     if (Array.isArray(customServices)) {
-        calculatedDuration += customServices.length * 30;
+        // Stock materials are not work of their own: they don't add time.
+        calculatedDuration += customServices.filter(c => !isStockLine(c)).length * 30;
     }
     return calculatedDuration || 30; // fallback minimum
 }
@@ -739,6 +741,8 @@ export default function SectorReception({
     }, [services, customServices, discount, extrasTotal]);
 
     // Custom services helpers
+    // Stock materials have their own section («مواد من المخزن»).
+    const plainCustoms = customServices.filter(s => !isStockLine(s));
     const addCustomService = () => {
         setCustomServices(prev => [...prev, { id: Date.now().toString(), label: "", status: "", price: "" }]);
     };
@@ -1993,6 +1997,13 @@ export default function SectorReception({
                             )}
                         </div>
 
+                        {/* Materials from the branch stock, by packaging (deducted when the order is finished). */}
+                        {!isSale && <StockMaterials
+                            branchId={selectedBranchId || ""}
+                            lines={customServices.filter(isStockLine)}
+                            onChange={lines => setCustomServices(prev => [...prev.filter(s => !isStockLine(s)), ...lines])}
+                        />}
+
                         {/* Maintenance Events (أحداث الصيانة - previously Custom Services) */}
                         <div className="rounded-xl border border-border bg-background/40">
                             <div className="flex flex-wrap items-center justify-between gap-3 p-3">
@@ -2005,7 +2016,7 @@ export default function SectorReception({
                                     </span>
                                     <span className="font-bold text-sm min-w-[140px]">أحداث الصيانة (خدمات إضافية)</span>
                                 </div>
-                                {customServices.length === 0 && (
+                                {plainCustoms.length === 0 && (
                                     <button
                                         type="button"
                                         onClick={addCustomService}
@@ -2016,9 +2027,9 @@ export default function SectorReception({
                                 )}
                             </div>
 
-                            {customServices.length > 0 && (
+                            {plainCustoms.length > 0 && (
                                 <div className="px-4 pb-3 pr-[3.25rem] border-t border-border/50 pt-3 space-y-3">
-                                    {customServices.map((cs, idx) => (
+                                    {plainCustoms.map((cs, idx) => (
                                         <div key={cs.id} className="flex flex-wrap items-center gap-3">
                                             <input
                                                 type="text"
