@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import StockMaterials, { isStockLine } from "./StockMaterials";
+import { useBranchStock, stockHits, linkStock, unlinkIfRenamed, hasStockLink, withPackField, StockHitList, PackSelect, type StockLink } from "./serviceStock";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { useAuth } from "@/lib/AuthProvider";
@@ -27,6 +28,7 @@ type ServiceEntry = {
     status: "جيد" | "يحتاج تغيير" | "";
     details: Record<string, string>; // flexible detail fields (type, number, qty, etc.)
     price: string;
+    stock?: Record<string, StockLink>; // material fields picked from the branch stock (deducted on finish)
 };
 
 const makeService = (): ServiceEntry => ({ status: "", details: {}, price: "" });
@@ -573,6 +575,7 @@ export default function SectorReception({
     const [reportNumber, setReportNumber] = useState<number | null>(null);
 
     const isSectorBranch = branches.find(b => b.id === selectedBranchId)?.name === 'القطاع' || branches.find(b => b.id === selectedBranchId)?.name === 'فرع القطاع';
+    const branchStock = useBranchStock(selectedBranchId || "");
     // ---------- Print Preview States ----------
     const [previewReportId, setPreviewReportId] = useState<string | null>(null);
     const [previewMode, setPreviewMode] = useState<'full' | 'short'>('full');
@@ -934,7 +937,7 @@ export default function SectorReception({
 
             return {
                 ...prev,
-                [key]: { ...prev[key], details: newDet, price: newPrice }
+                [key]: unlinkIfRenamed({ ...prev[key], details: newDet, price: newPrice }, field)
             };
         });
     };
@@ -1684,15 +1687,24 @@ export default function SectorReception({
                                                                             })}
                                                                             <button type="button" onClick={() => setServiceDetail(svc.key, `prod_${Date.now()}`, '')} className="text-xs text-rose-500 font-bold border border-rose-500/30 rounded-lg py-1.5 hover:bg-rose-500/10 transition-colors w-max px-3">+ إضافة أخرى</button>
                                                                         </div>
-                                                                    ) : [...svc.detailFields, ...priceFields(svc)].map(df => {
+                                                                    ) : withPackField([...svc.detailFields, ...priceFields(svc)], entry).map(df0 => {
+                                                                        if ('forField' in df0) {
+                                                                            const f = df0.forField, l = entry.stock?.[f], it = l ? branchStock.byId.get(l.inventory_id) : undefined;
+                                                                            return <PackSelect key={df0.key} className="flex-1 min-w-[120px]" item={it} value={l?.packageUnit || ""}
+                                                                                onChange={u => { if (it) setServices(prev => ({ ...prev, [svc.key]: linkStock(prev[svc.key], f, it, u) })); }} />;
+                                                                        }
+                                                                        const df = df0;
                                                                         const resolvedListId = df.listId && df.listId !== 'technicianNames' && df.listId !== 'supervisorNames' && df.listId !== 'receptionistNames' && df.listId !== 'bayNumbers' ? "materials" : df.listId;
                                                                         const fieldKey = svc.key + "_" + df.key;
                                                                         const suggestions = (focusedListId === resolvedListId && focusedFieldKey === fieldKey) ? getFilteredSuggestions() : [];
+                                                                        const isMat = df.key === "brand" || df.key === "type";
+                                                                        const hits = isMat && focusedFieldKey === fieldKey ? stockHits(branchStock.items, entry.details[df.key] || "") : [];
                                                                         return (
                                                                             <div key={df.key} className="relative flex-1 min-w-[120px]">
                                                                                 <input
                                                                                     type={df.key === 'unitPrice' || df.key === 'qty' || df.key === 'liters' ? "number" : "text"}
                                                                                     placeholder={df.label}
+                                                                                readOnly={df.key === "unitPrice" && hasStockLink(entry)}
                                                                                     className="input-field text-xs py-1.5 w-full"
                                                                                     value={entry.details[df.key] || ""}
                                                                                     onChange={e => {
@@ -1714,8 +1726,9 @@ export default function SectorReception({
                                                                                         }, 250);
                                                                                     }}
                                                                                 />
-                                                                                {focusedListId === resolvedListId && focusedFieldKey === fieldKey && suggestions.length > 0 && (
+                                                                                {focusedFieldKey === fieldKey && (suggestions.length > 0 || hits.length > 0) && (
                                                                                     <div className="suggestion-dropdown scrollbar-thin">
+                                                                                        <StockHitList hits={hits} onPick={it => setServices(prev => ({ ...prev, [svc.key]: linkStock(prev[svc.key], df.key, it) }))} />
                                                                                         {suggestions.map((item, sidx) => (
                                                                                             <button
                                                                                                 key={sidx}
@@ -1819,8 +1832,9 @@ export default function SectorReception({
                                                                                         }, 250);
                                                                                     }}
                                                                                 />
-                                                                                {focusedListId === "materials" && focusedFieldKey === (svc.key + "_" + k) && getFilteredSuggestions().length > 0 && (
+                                                                                {focusedFieldKey === (svc.key + "_" + k) && (getFilteredSuggestions().length > 0 || stockHits(branchStock.items, entry.details[k] || "").length > 0) && (
                                                                                     <div className="suggestion-dropdown scrollbar-thin">
+                                                                                        <StockHitList hits={stockHits(branchStock.items, entry.details[k] || "")} onPick={it => setServices(prev => ({ ...prev, [svc.key]: linkStock(prev[svc.key], k, it) }))} />
                                                                                         {getFilteredSuggestions().map((item, sidx) => (
                                                                                             <button
                                                                                                 key={sidx}
@@ -1865,10 +1879,13 @@ export default function SectorReception({
                                                                                     onChange={e => setServiceDetail(svc.key, k.replace('prod_', 'qty_'), decimalsOnly(e.target.value))}
                                                                                 />
                                                                             </div>
+                                                                            {entry.stock?.[k] && <PackSelect className="w-32" item={branchStock.byId.get(entry.stock[k].inventory_id)} value={entry.stock[k].packageUnit}
+                                                                                onChange={u => { const it = branchStock.byId.get(entry.stock?.[k]?.inventory_id || ""); if (it) setServices(prev => ({ ...prev, [svc.key]: linkStock(prev[svc.key], k, it, u) })); }} />}
                                                                             <div className="flex items-center gap-1 w-24">
                                                                                 <input
                                                                                     type="text" inputMode="numeric"
                                                                                     placeholder="سعر الوحدة"
+                                                                                readOnly={hasStockLink(entry, k)}
                                                                                     className="input-field text-xs py-1.5 w-full text-left"
                                                                                     dir="ltr"
                                                                                     value={withCommas(entry.details[priceKey] || "")}
@@ -1898,12 +1915,12 @@ export default function SectorReception({
                                                                             {i > 0 && (
                                                                                 <button type="button" onClick={() => {
                                                                                     const newDetails = {...entry.details};
-                                                                                    delete newDetails[k];
+                                                                                    delete newDetails[k]; delete newDetails[k.replace('prod_', 'pack_')];
                                                                                     delete newDetails[priceKey];
                                                                                     delete newDetails[k.replace('prod_', 'qty_')];
                                                                                     delete newDetails[k.replace('prod_', 'notes_')];
                                                                                     const sum = sumMultiProduct(newDetails);
-                                                                                    setServices(prev => ({...prev, [svc.key]: {...prev[svc.key], details: newDetails, price: sum > 0 ? String(sum) : ""}}));
+                                                                                    setServices(prev => ({...prev, [svc.key]: {...prev[svc.key], details: newDetails, price: sum > 0 ? String(sum) : "", stock: Object.fromEntries(Object.entries(prev[svc.key].stock || {}).filter(([f]) => f !== k))}}));
                                                                                 }} className="text-rose-500 hover:bg-rose-500/10 p-1.5 rounded-lg">✕</button>
                                                                             )}
                                                                         </div>
@@ -1917,7 +1934,13 @@ export default function SectorReception({
                                                                     + منتج آخر
                                                                 </button>
                                                             </div>
-                                                        ) : [...svc.detailFields, ...priceFields(svc)].map(df => {
+                                                        ) : withPackField([...svc.detailFields, ...priceFields(svc)], entry).map(df0 => {
+                                                            if ('forField' in df0) {
+                                                                const f = df0.forField, l = entry.stock?.[f], it = l ? branchStock.byId.get(l.inventory_id) : undefined;
+                                                                return <PackSelect key={df0.key} className="flex-1 min-w-[120px]" item={it} value={l?.packageUnit || ""}
+                                                                    onChange={u => { if (it) setServices(prev => ({ ...prev, [svc.key]: linkStock(prev[svc.key], f, it, u) })); }} />;
+                                                            }
+                                                            const df = df0;
                                                             if (svc.key === 'coolant' && df.key === 'size') {
                                                                 return (
                                                                     <select 
@@ -1935,11 +1958,14 @@ export default function SectorReception({
                                                             const resolvedListId = df.listId && df.listId !== 'technicianNames' && df.listId !== 'supervisorNames' && df.listId !== 'receptionistNames' && df.listId !== 'bayNumbers' ? "materials" : df.listId;
                                                             const fieldKey = svc.key + "_" + df.key;
                                                             const suggestions = (focusedListId === resolvedListId && focusedFieldKey === fieldKey) ? getFilteredSuggestions() : [];
+                                                            const isMat = df.key === "brand" || df.key === "type";
+                                                            const hits = isMat && focusedFieldKey === fieldKey ? stockHits(branchStock.items, entry.details[df.key] || "") : [];
                                                             return (
                                                                 <div key={df.key} className="relative flex-1 min-w-[120px]">
                                                                     <input
                                                                         type={df.key === 'unitPrice' || df.key === 'qty' ? "number" : "text"}
                                                                         placeholder={df.label}
+                                                                    readOnly={df.key === "unitPrice" && hasStockLink(entry)}
                                                                         className="input-field text-xs py-1.5 w-full"
                                                                         value={entry.details[df.key] || ""}
                                                                         onChange={e => {
@@ -1961,8 +1987,9 @@ export default function SectorReception({
                                                                             }, 250);
                                                                         }}
                                                                     />
-                                                                    {focusedListId === resolvedListId && focusedFieldKey === fieldKey && suggestions.length > 0 && (
+                                                                    {focusedFieldKey === fieldKey && (suggestions.length > 0 || hits.length > 0) && (
                                                                         <div className="suggestion-dropdown scrollbar-thin">
+                                                                            <StockHitList hits={hits} onPick={it => setServices(prev => ({ ...prev, [svc.key]: linkStock(prev[svc.key], df.key, it) }))} />
                                                                             {suggestions.map((item, sidx) => (
                                                                                 <button
                                                                                     key={sidx}

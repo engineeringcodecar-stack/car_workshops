@@ -76,7 +76,7 @@ export default function StockMaterials({ branchId, lines, onChange }: { branchId
 
     return <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5">
         <div className="flex flex-wrap items-center justify-between gap-2 p-3">
-            <span className="font-bold text-sm flex items-center gap-2"><Package size={16} className="text-emerald-400" />مواد من المخزن</span>
+            <span className="font-bold text-sm flex items-center gap-2"><Package size={16} className="text-emerald-400" />مواد إضافية من المخزن</span>
             <span className="text-[11px] text-muted-foreground">تنخصم من مخزن الفرع لما أمر العمل يخلص، وترجع إذا انحذف أو انلغى أو انفتح من جديد.</span>
         </div>
 
