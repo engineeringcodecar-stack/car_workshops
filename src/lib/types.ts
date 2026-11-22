@@ -121,6 +121,7 @@ export interface Database {
           permission_customers: boolean | null
           permission_reports: boolean | null
           permission_employees: boolean | null
+          archived_at: string | null
         }
         Insert: {
           id?: string
@@ -137,6 +138,7 @@ export interface Database {
           permission_customers?: boolean | null
           permission_reports?: boolean | null
           permission_employees?: boolean | null
+          archived_at?: string | null
         }
         Update: {
           id?: string
@@ -153,6 +155,7 @@ export interface Database {
           permission_customers?: boolean | null
           permission_reports?: boolean | null
           permission_employees?: boolean | null
+          archived_at?: string | null
         }
         Relationships: [
           {

@@ -268,24 +268,27 @@ export async function deleteEmployeeAccount(authId: string) {
         const { error: banError } = await supabaseAdmin.auth.admin.updateUserById(authId, { ban_duration: "876000h" });
         if (banError) return { success: false, error: banError.message };
 
-        // 2. Delete Employee Record (undo the ban if it can't be removed)
+        // 2. Archive the employee record instead of deleting it: work orders, tasks and targets
+        //    point at it (a hard delete failed on any employee with work orders, and would wipe
+        //    their tasks). The row keeps the name for old orders; it loses its login and username
+        //    and drops out of every list. Undo the ban if this step fails.
         const { error: dbError } = await supabaseAdmin
             .from('employees')
-            .delete()
+            .update({ auth_id: null, username: null, archived_at: new Date().toISOString() })
             .eq('auth_id', authId);
 
         if (dbError) {
             await supabaseAdmin.auth.admin.updateUserById(authId, { ban_duration: "none" });
-            return { success: false, error: dbError.message };
+            return { success: false, error: "تعذّر أرشفة الموظف. تأكد من تشغيل تحديث قاعدة البيانات الأخير." };
         }
 
-        // 3. Delete Auth User
+        // 3. Delete the login itself (no longer linked to the employee row, so nothing cascades).
         const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(authId);
 
         if (authError) {
             return {
                 success: false,
-                error: `تم حذف الموظف وإيقاف دخوله، لكن تعذّر حذف حساب الدخول: ${authError.message}`,
+                error: "تم أرشفة الموظف وإيقاف دخوله، لكن تعذّر حذف حساب الدخول نهائياً.",
             };
         }
 
@@ -325,6 +328,7 @@ export async function listAppUsers() {
         let query = supabaseAdmin
             .from("employees")
             .select("id, auth_id, name, role")
+            .is("archived_at", null)
             .order("name", { ascending: true });
         if (scopeBranch) query = query.eq("branch_id", scopeBranch);
         const { data: employees, error: empError } = await query;

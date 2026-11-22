@@ -40,7 +40,7 @@ export default function PayrollPage() {
         setLoading(true);
         try {
             // Fetch employees
-            let query = supabase.from('employees').select('id, name, role, branch_id');
+            let query = supabase.from('employees').select('id, name, role, branch_id').is('archived_at', null);
             if (employeeBranchId) {
                 query = query.eq('branch_id', employeeBranchId);
             }

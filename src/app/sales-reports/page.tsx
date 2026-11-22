@@ -47,7 +47,7 @@ export default function SalesReportsPage() {
     useEffect(() => {
         if (!authorized) return;
         supabase.from("branches").select("id,name").order("name").then(({ data }) => setBranches((data || []) as any));
-        supabase.from("employees").select("id,name,role,branch_id").order("name").then(({ data }) => setEmployees((data || []) as Employee[]));
+        supabase.from("employees").select("id,name,role,branch_id").is("archived_at", null).order("name").then(({ data }) => setEmployees((data || []) as Employee[]));
     }, [authorized]);
 
     const fetchReport = useCallback(async () => {

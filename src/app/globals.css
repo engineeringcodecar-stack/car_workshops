@@ -647,3 +647,14 @@
 @media (max-width: 430px) {
   .print-preview-doc { zoom: 0.34 !important; }
 }
+
+/* Native dropdown lists don't inherit the select's styling: give every option the theme's
+   card background and text colour so the open list stays readable in dark and light mode. */
+select option,
+select optgroup {
+    background-color: hsl(var(--card));
+    color: hsl(var(--foreground));
+}
+select option:disabled {
+    color: hsl(var(--muted-foreground));
+}

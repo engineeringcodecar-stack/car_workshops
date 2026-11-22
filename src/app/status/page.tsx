@@ -73,7 +73,7 @@ export default function KanbanStatusPage() {
     useEffect(() => {
         // Fetch technicians
         const fetchTechs = async () => {
-            let empQuery = supabase.from('employees').select('*').in('role', ['Supervisor', 'Admin', 'Owner']);
+            let empQuery = supabase.from('employees').select('*').is('archived_at', null).in('role', ['Supervisor', 'BranchManager', 'Admin', 'Owner']);
             if (employeeBranchId) {
                 empQuery = empQuery.eq('branch_id', employeeBranchId);
             }

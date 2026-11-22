@@ -69,7 +69,7 @@ export default function SettingsPage() {
                 { data: bData, error: bErr },
                 { data: settingsData }
             ] = await Promise.all([
-                supabase.from('employees').select('*').order('created_at', { ascending: false }),
+                supabase.from('employees').select('*').is('archived_at', null).order('created_at', { ascending: false }),
                 supabase.from('branches').select('*').order('created_at', { ascending: true }),
                 supabase.from('workshop_settings').select('*')
             ]);
@@ -285,7 +285,7 @@ export default function SettingsPage() {
         
         const isConfirmed = await showConfirm(
             `حذف المستخدم`,
-            `هل أنت متأكد من حذف المستخدم ${name}؟ لا يمكن التراجع عن هذا الإجراء.`,
+            `سيتم إيقاف دخول ${name} وحذف حسابه من القائمة. أوامر العمل والسجل القديم تبقى باسمه. لا يمكن التراجع.`,
             'نعم، احذف',
             true
         );

@@ -56,7 +56,7 @@ export default function SalesPlanPage() {
             const monthDate = `${month}-01`;
             const [planRow, staffRows, stockRows] = await Promise.all([
                 (supabase as any).from("sales_plans").select("id,branch_id,month,target_amount,notes").eq("branch_id", branchId).eq("month", monthDate).maybeSingle(),
-                (supabase as any).from("employees").select("id,name,role,permission_reception,allowed_pages").eq("branch_id", branchId).in("role", ["Receptionist", "Supervisor"]).order("name"),
+                (supabase as any).from("employees").select("id,name,role,permission_reception,allowed_pages").eq("branch_id", branchId).is("archived_at", null).in("role", ["Receptionist", "Supervisor"]).order("name"),
                 canEdit ? (supabase as any).from("inventory").select("id,name,base_unit").eq("branch_id", branchId).order("name").limit(2000) : Promise.resolve({ data: [] }),
             ]);
             if (planRow.error) throw planRow.error;

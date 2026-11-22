@@ -604,7 +604,7 @@ export default function SectorReception({
     }, [previewReportId]);
     // Fetch employees on mount
     useEffect(() => {
-        let empQuery = supabase.from('employees').select('id, name, role, branch_id').order('name');
+        let empQuery = supabase.from('employees').select('id, name, role, branch_id').is('archived_at', null).order('name');
 
         const activeBranchId = selectedBranchId || employeeBranchId;
         if (activeBranchId) {
