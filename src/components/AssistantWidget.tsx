@@ -147,7 +147,7 @@ export default function AssistantWidget() {
     const busy = sending || exporting;
 
     return (
-        <div dir="rtl" className="font-ibm">
+        <div dir="rtl" className="font-ibm print:hidden">
             {/* لوحة الشات */}
             {open && (
                 <div className="fixed bottom-24 left-4 z-[60] w-[calc(100vw-2rem)] sm:w-[24rem] h-[70vh] max-h-[34rem] flex flex-col glass-card border border-rose-500/25 rounded-3xl shadow-2xl shadow-black/40 overflow-hidden">
