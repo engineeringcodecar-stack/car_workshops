@@ -28,6 +28,7 @@ import {
     ListTodo,
     Target,
     UserRound,
+    ShieldAlert,
 } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import NotificationBell from "./NotificationBell";
@@ -136,6 +137,7 @@ export function Sidebar() {
             items: [
                 // { href: "/whatsapp", label: "ربط الواتساب والجدوى", icon: <MessageSquare size={20} /> },
                 { href: "/settings", label: t.common.settings || "الإعدادات", icon: <Settings size={20} /> },
+                { href: "/oversight", label: "الرقابة الإدارية", icon: <ShieldAlert size={20} />, roles: ["Owner", "Admin", "BranchManager"] },
             ]
         },
         /* -- مخفية مؤقتاً لتبسيط النظام بناءً على طلب العميل --
@@ -177,7 +179,9 @@ export function Sidebar() {
             // Owner and Admin always see every tab.
             if (employeeRole === 'Owner' || employeeRole === 'Admin') return true;
             // A branch manager always has the accounts, plan and sales pages of their branch.
-            if (employeeRole === 'BranchManager' && ['/settings', '/sales-plan', '/sales-reports'].includes(item.href)) return true;
+            if (employeeRole === 'BranchManager' && ['/settings', '/sales-plan', '/sales-reports', '/oversight'].includes(item.href)) return true;
+            // الرقابة الإدارية: Owner/Admin and branch managers only, whatever the tab list says.
+            if (item.href === '/oversight') return false;
 
             // Per-tab permissions (الإعدادات → صلاحيات التبويبات): when configured,
             // the allowed_pages list is the single source of truth for this employee.

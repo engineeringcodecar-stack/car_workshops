@@ -42,14 +42,19 @@ export async function createSupabaseServerClient() {
     );
 }
 
-/** Build a service-role admin client (bypasses RLS). Server-only. */
-function createSupabaseAdminClient(): SupabaseClient<Database> | null {
+/**
+ * Build a service-role admin client (bypasses RLS). Server-only.
+ * `actorAuthId` names the signed-in manager for الرقابة الإدارية (the audit log): the database
+ * trusts this header only on service-key requests (supabase/migrations/20261131_audit_log.sql).
+ */
+function createSupabaseAdminClient(actorAuthId?: string): SupabaseClient<Database> | null {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!supabaseUrl || !serviceRoleKey) return null;
 
     return createClient<Database>(supabaseUrl, serviceRoleKey, {
         auth: { autoRefreshToken: false, persistSession: false },
+        ...(actorAuthId ? { global: { headers: { "x-audit-actor": actorAuthId } } } : {}),
     });
 }
 
@@ -95,7 +100,7 @@ type CallerResult =
  * are shown verbatim to staff in the Settings screen.
  */
 async function resolveCaller(): Promise<CallerResult> {
-    const supabaseAdmin = createSupabaseAdminClient();
+    let supabaseAdmin = createSupabaseAdminClient();
     if (!supabaseAdmin) {
         return {
             ok: false,
@@ -114,6 +119,8 @@ async function resolveCaller(): Promise<CallerResult> {
     if (userError || !user) {
         return { ok: false, error: "انتهت الجلسة. سجّل الخروج ثم الدخول من جديد وأعد المحاولة." };
     }
+    // From here on, every write is recorded in the audit log under the verified caller.
+    supabaseAdmin = createSupabaseAdminClient(user.id) ?? supabaseAdmin;
 
     const { data: employee, error: roleError } = await supabaseAdmin
         .from("employees")
